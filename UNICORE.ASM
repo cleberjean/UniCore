@@ -392,8 +392,7 @@ trampoline_seg dw 0
 
 ; Messages
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
-done_msg_num   db "00", " cores suspended.", 0Dh, 0Ah
-               db "TSR is loaded.", 0Dh, 0Ah, "$"
+done_msg_num   db "00", " cores suspended. TSR loaded.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "FAIL!: None core has been responded.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 bad_proc_msg   db 0Dh, 0Ah, "Requires a Pentium 4 or later processor.", 0Dh, 0Ah, "$"
@@ -478,7 +477,7 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 .sleep_loop:
     cli                            ; Disable interrupts
-    mov   eax,(trigger_var - trampoline_code_start)
+    mov   eax,(monitored_addr - trampoline_code_start)
     xor   ecx,ecx                  ; Must be 0
     xor   edx,edx                  ; Must be 0
     monitor
@@ -493,12 +492,10 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 ; Trampoline Code Vars
 ;------------------------------------------------------------------------------
-ap_counter  db 0                   ; Cores counter (will incremented for each
+ap_counter     db 0                ; Cores counter (will incremented for each
                                    ; core suspended)
-    
-; Monitoring Variable for the Trampoline Code    
-    align   64                     ; 
-trigger_var db 0
+    align   64                     ; Must be aligned with 64 bytes
+monitored_addr db 0                ; Monitoring Address for MONITOR instruction
 
 trampoline_code_end:               ; Marker for trampoline code copy
 
