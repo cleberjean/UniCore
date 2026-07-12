@@ -1,7 +1,7 @@
 ;------------------------------------------------------------------------------
 ; UniCore - Parks All Extra (AP) Cores, Leaving Only the BSP Running
 ; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
-; Compile with: "nasm unicore.asm -o unicore.com"
+; Compile with: "nasm unicore.asm -o unicore.com -s"
 ; Released under MIT license.
 ; 12/jul/2026
 ;
@@ -14,6 +14,12 @@
 ;     05 = Processor does not supports C-states
 ;     06 = A20 line is locked
 ;     07 = Processor in Protected Mode
+;
+; History:
+;     12jul2026
+;         + Added several checkings (A20 line, Protected Mode, DOS 2.x,
+;           MONITOR/MWAIT support, C-states support).
+;
 ;------------------------------------------------------------------------------
 
     bits  16
@@ -113,11 +119,12 @@ check_A20_line:
 check_protected_mode:
     pushf
     pop   ax                       ; Copies Flags register content in AX
-    and   ax,0CFFFh                ; Clear bits 13:12 (IOPL)
+    and   ax,0CFFFh                ; Force bits 13:12 (IOPL) to 00 (Protected 
+                                   ; Mode does not will allow).
     push  ax
     popf                           ; Copies bits 13:12 cleaned to Flags reg.
     pushf
-    pop   ax                       ; Copies Flags register content in AX
+    pop   ax                       ; Copies Flags register content back in AX
     and   ah,30h                   ; Checks if bits 13:12 (IOPL) from Flags
                                    ; register are set. (bits 13:12 can not
                                    ; be cleaned in Protected Mode)
@@ -135,54 +142,54 @@ check_protected_mode:
 ; Calculates Physical Address from Program End
 ;------------------------------------------------------------------------------
 calc_physical_address:
-    xor   eax,eax
-    mov   ax,cs
-    shl   eax,4                    ; EAX = Endere‡o f¡sico base do programa
-    add   eax,pgm_end              ; EAX = Endereço f¡sico do fim do c¢digo
+    xor   eax,eax                  ; Clears high word of EAX
+    mov   ax,cs                    ; EAX = code segment
+    shl   eax,4                    ; Gets program base physical address
+    add   eax,pgm_end              ; EAX = Code end physical address
 
-    ; Encontra a proxima fronteira de 4KB (Page Boundary)
+    ; Finds the Next 4KB Page Boundary
     add   eax,0FFFh
     and   eax,0FFFFF000h           ; Alinha para uma p gina de 4KB
 
-    ; Salva o Segmento do Trampolim (physical address / 16)
+    ; Salves the Trampoline Code Segment (physical address / 16)
     shr   eax,4
     mov   [trampoline_seg],ax
 
-    ; O vetor SIPI j  est  "de gra‡a" em AH!
-    ; (Ex: Se o segmento for 0x2100, AH ser  0x21)
-    mov   [sipi_vector],ah
+    ; SIPI Vector already is in AH!
+    ; (I.E.: If segment is 0x2100, AH is 0x21)
+    mov   [sipi_vector],ah          ; Saves SIPI vector in memory
 
 
 ;------------------------------------------------------------------------------
 ; Copia o Codigo do Trampolim para o Espa‡o Alinhado
 ;------------------------------------------------------------------------------
     mov   si,trampoline_code_start
-    push  es
+    push  es                       ; Preserves ES
     mov   es,ax                    ; ES = Segmento Alinhado (trampoline_seg)
     xor   di,di                    ; Offset 0
     mov   cx,(trampoline_code_end - trampoline_code_start)
     cld
     rep   movsb
-    pop   es
+    pop   es                       ; Restores original ES content
 
 
-    ;----------------------------------------------------------------
-    ; Calcula Endere‡o Linear da GDT (DS * 16 + gdt_start)
-    ;----------------------------------------------------------------
+    ;-----------------------------------------------------------
+    ; Calculate GDT Linear Address (DS * 16 + gdt_start)
+    ;-----------------------------------------------------------
     xor   eax,eax
-    mov   ax,cs                    ; Copy GDT segment to ax
-    shl   eax,4                    ; Multiplica DS por 16
-    add   eax,gdt_start            ; Soma o offset da GDT
+    mov   ax,cs                    ; Copies GDT segment to AX
+    shl   eax,4                    ; Multiplies DS by 16
+    add   eax,gdt_start            ; Adds GDT offset
     mov   [gdt_base_address],eax   ; Atualiza o ponteiro fisicamente na RAM
 
 
-    ;-----------------------------------------------------
-    ; Entra no Unreal Mode
-    ;-----------------------------------------------------
-    cli                            ; 1. PERIGO MAXIMO: Desliga interrup‡”es AGORA.
-    push  fs                       ; 2. Salva o FS do DOS enquanto estamos no Modo Real
+    ;-----------------------------------------------------------
+    ; Enter in Unreal Mode
+    ;-----------------------------------------------------------
+    cli                            ; Clears interrupts (MANDATORY!)
+    push  fs                       ; Saves FS even on Real Mode
 
-    lgdt  [gdt_descriptor]         ; 3. Carrega a GDT com o endere‡o absoluto corrigido
+    lgdt  [gdt_descriptor]         ; Loads GDT with the absolute address
 
     mov   eax,cr0
     push  eax                      ; Saves CR0 content
@@ -200,15 +207,12 @@ calc_physical_address:
     jmp   $+2                      ; Clears pipeline
 
     xor   ax,ax
-    mov   fs,ax                    ; Now FS will point to the base of 4GB address
+    mov   fs,ax                    ; FS points to the base of 4GB address
 
 
-    ; * BEM-VINDO AO UNREAL MODE *
-    ; A partir daqui estamos seguros no DOS, mas FS enxerga 4GB.
-
-;-----------------------------------------------------
+;-------------------------------------------------------------------------------
 ; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
-;-----------------------------------------------------
+;-------------------------------------------------------------------------------
     xor   ecx,ecx
     mov   cl,1Bh                   ; ECX = 0000001Bh
     rdmsr                          ; Gets APIC Base Pointer
@@ -253,16 +257,16 @@ calc_physical_address:
     jc    .wait_sipi2              ; Waits SIPI to finish
 
 
-;-----------------------------------------------------
+;-------------------------------------------------------------------------------
 ; Restores Original FS Value and Re-Enable Interrupts
-;-----------------------------------------------------
+;-------------------------------------------------------------------------------
     pop   fs                       ; Restaura o limite original de 64KB no FS (Modo Real)
     sti                            ; Religa as interrup‡”es do BIOS/DOS
 
 
-;---------------------------------------------------------
+;-------------------------------------------------------------------------------
 ; Get Number of Cores Sleeping
-;---------------------------------------------------------
+;-------------------------------------------------------------------------------
     mov   ax,[trampoline_seg]
     mov   es,ax
     mov   al,es:[(ap_counter - trampoline_code_start)]
@@ -270,9 +274,9 @@ calc_physical_address:
     je    sleep_fail                ; None core responded (exits without stay resident)
 
 
-;---------------------------------------------------------
+;-------------------------------------------------------------------------------
 ; Show Number of Cores Sleeping
-;---------------------------------------------------------
+;-------------------------------------------------------------------------------
     aam   0Ah
     or    ax,3030h                  ; Converts value to ASCII
     xchg  ah,al
@@ -282,17 +286,16 @@ calc_physical_address:
     int   21h                       ; Imprime na tela
 
 
-;---------------------------------------------------------
+;-------------------------------------------------------------------------------
 ; Terminate and Stay Resident   
-;---------------------------------------------------------
-    ; Calcula o tamanho da memória a ser mantida blindada pelo DOS
+;-------------------------------------------------------------------------------
+    ; Calcula o tamanho da mem¢ria a ser mantida blindada pelo DOS
     ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
 stay_resident:
     mov   ax,[trampoline_seg]
     add   ax,0100h
     mov   bx,cs
     sub   ax,bx                     ; AX = Paragrafos totais do nosso c¢digo + trampolim
-
     mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
     mov   ax,3100h                  ; TSR (Terminate and Stay Resident) interrupt
     int   21h                       ; Backs to DOS
@@ -337,7 +340,7 @@ check_A20_sub:
     not   byte [0500h]             ; Restores address 0000:0500h content
     sti                            ; Re-enable interrupts
 
-; Returns Zero Flag = 0 = A20 Enabled, Zero Flag = 1 = A20 Disabled
+; Returns Z Flag = 0 = A20 Enabled, Z Flag = 1 = A20 Disabled
 check_A20_sub_return:
     pop   es                       ; Restores ES
     pop   ds                       ; Restores DS
