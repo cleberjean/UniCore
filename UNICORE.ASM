@@ -1,8 +1,19 @@
 ;------------------------------------------------------------------------------
 ; UniCore - Parks All Extra (AP) Cores, Leaving Only the BSP Running
-; Author: cleberjean@hotmail.com
+; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Compile with: "nasm unicore.asm -o unicore.com"
 ; Released under MIT license.
+; 12/jul/2026
+;
+; Error Codes Returned:
+;     00 = Successfully and stayed resident
+;     01 = Cores does not respond
+;     02 = DOS not is 2.0 or earlier
+;     03 = Bad processor
+;     04 = Processor does not supports MONITOR/MWAIT instructions
+;     05 = Processor does not supports C-states
+;     06 = A20 line is locked
+;     07 = Processor in Protected Mode
 ;------------------------------------------------------------------------------
 
     bits  16
@@ -14,7 +25,116 @@ pgm_begin:
     push  cs
     pop   ds
 
-    ; Calcula o Endere‡o Fisico do final do programa
+
+;------------------------------------------------------------------------------
+; Checks DOS Version
+;------------------------------------------------------------------------------
+check_dos:
+    mov    ax,3000h
+    int    21h                     ; get DOS version
+    cmp    al,02h
+    jae    check_processor
+
+    ; DOS not is 2.0 or earlier
+    mov   dx,bad_dos_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C02h                 ; Finish with error code 2
+    int   21h
+
+
+check_processor:
+;    call  get_proc_id
+;    cmp   al,NN
+;    jae   check_mwait
+
+;    ; Processor not is a Pentium 4
+;    mov   dx,bad_proc_msg
+;    mov   ah,09h
+;    int   21h
+;    mov   ax,4C03h                 ; Finish with error code 3
+;    int   21h
+
+
+;------------------------------------------------------------------------------
+; Checks if Processor Supports MONITOR/MWAIT Instructions
+;------------------------------------------------------------------------------
+check_mwait:
+    xor   eax,eax
+    mov   al,01h
+    cpuid
+    bt    dx,3
+    jc    check_c_states
+
+    ; Processor does not supports MONITOR/MWAIT instructions
+    mov   dx,no_mwait_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C04h                 ; Finish with error code 4
+    int   21h
+
+    
+;------------------------------------------------------------------------------
+; Checks if Processor Supports C-states, Ignoring C0
+;------------------------------------------------------------------------------
+check_c_states:
+    xor   eax,eax
+    mov   al,5
+    cpuid
+    test  edx,0xFFFFFFF0           ; Checks for C1-C7 C-states (ignoring C0)
+    jnz   check_A20_line
+
+    ; Processor does not supports C-states
+    mov   dx,no_c_state_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C05h                 ; Finish with error code 5
+    int   21h
+
+
+;------------------------------------------------------------------------------
+; Checks A20 Line
+;------------------------------------------------------------------------------
+check_A20_line:
+    call  check_A20_sub           ; Checks A20 Line (Zero Flag = 1, A20 locked)
+    jnz   check_protected_mode
+     
+    ; A20 Line is Locked
+    mov   dx,a20_locked_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C06h                 ; Finish with error code 6
+    int   21h
+
+
+;------------------------------------------------------------------------------
+; Checks Protected Mode
+;------------------------------------------------------------------------------
+check_protected_mode:
+    pushf
+    pop   ax                       ; Copies Flags register content in AX
+    and   ax,0CFFFh                ; Clear bits 13:12 (IOPL)
+    push  ax
+    popf                           ; Copies bits 13:12 cleaned to Flags reg.
+    pushf
+    pop   ax                       ; Copies Flags register content in AX
+    and   ah,30h                   ; Checks if bits 13:12 (IOPL) from Flags
+                                   ; register are set. (bits 13:12 can not
+                                   ; be cleaned in Protected Mode)
+    jz    calc_physical_address    ; If 00, then system in Ring 0 (Real Mode)
+
+    ; Processor is in Protected Mode
+    mov   dx,pm_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C07h                 ; Finish with error code 7
+    int   21h                     
+
+
+;------------------------------------------------------------------------------
+; Calculates Physical Address from Program End
+;------------------------------------------------------------------------------
+calc_physical_address:
     xor   eax,eax
     mov   ax,cs
     shl   eax,4                    ; EAX = Endere‡o f¡sico base do programa
@@ -24,7 +144,7 @@ pgm_begin:
     add   eax,0FFFh
     and   eax,0FFFFF000h           ; Alinha para uma p gina de 4KB
 
-    ; Salva o Segmento do Trampolim (Endere‡o F¡sico / 16)
+    ; Salva o Segmento do Trampolim (physical address / 16)
     shr   eax,4
     mov   [trampoline_seg],ax
 
@@ -47,7 +167,7 @@ pgm_begin:
 
 
     ;----------------------------------------------------------------
-    ; PASSO 1: Calcular Endere‡o Linear da GDT (DS * 16 + gdt_start)
+    ; Calcula Endere‡o Linear da GDT (DS * 16 + gdt_start)
     ;----------------------------------------------------------------
     xor   eax,eax
     mov   ax,cs                    ; Copy GDT segment to ax
@@ -57,7 +177,7 @@ pgm_begin:
 
 
     ;-----------------------------------------------------
-    ; PASSO 2: Entrar no Unreal Mode
+    ; Entra no Unreal Mode
     ;-----------------------------------------------------
     cli                            ; 1. PERIGO MAXIMO: Desliga interrup‡”es AGORA.
     push  fs                       ; 2. Salva o FS do DOS enquanto estamos no Modo Real
@@ -65,17 +185,19 @@ pgm_begin:
     lgdt  [gdt_descriptor]         ; 3. Carrega a GDT com o endere‡o absoluto corrigido
 
     mov   eax,cr0
-    or    al,1
-    mov   cr0,eax                  ; 4. PM ON (Fronteira cruzada)
-    jmp   $+2                      ; 5. Limpa pipeline
+    push  eax                      ; Saves CR0 content
+    or    al,1                     ; EAX Bit 0 = 1
+    mov   cr0,eax                  ; Turn on Protected Mode
+    jmp   $+2                      ; Clears pipeline
 
     mov   ax,0008h
-    mov   fs,ax                    ; 6. FS engole o limite de 4GB no Shadow Cache!
+    mov   fs,ax                    ; FS engole o limite de 4GB no Shadow Cache!
 
-    mov   eax,cr0
-    and   al,0FEh
-    mov   cr0,eax                  ; 7. PM OFF (De volta ao Modo Real)
-    jmp   $+2                      ; 8. Limpa pipeline
+;    mov   eax,cr0
+;    and   al,0FEh
+    pop   eax
+    mov   cr0,eax                  ; Restores original CR0 content
+    jmp   $+2                      ; Clears pipeline
 
     xor   ax,ax
     mov   fs,ax                    ; Now FS will point to the base of 4GB address
@@ -85,7 +207,7 @@ pgm_begin:
     ; A partir daqui estamos seguros no DOS, mas FS enxerga 4GB.
 
 ;-----------------------------------------------------
-; Sleep Cores (INIT-SIPI-SIPI Sequence)
+; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
 ;-----------------------------------------------------
     xor   ecx,ecx
     mov   cl,1Bh                   ; ECX = 0000001Bh
@@ -138,38 +260,34 @@ pgm_begin:
     sti                            ; Religa as interrup‡”es do BIOS/DOS
 
 
+;---------------------------------------------------------
 ; Get Number of Cores Sleeping
+;---------------------------------------------------------
     mov   ax,[trampoline_seg]
     mov   es,ax
     mov   al,es:[(ap_counter - trampoline_code_start)]
     cmp   al,0                      ; Checks how much cores responded
-    je    .fail                     ; None core responded
+    je    sleep_fail                ; None core responded (exits without stay resident)
 
-    ; Se chegou aqui, AL tem o numero de nucleos (ex: 5)
+
+;---------------------------------------------------------
+; Show Number of Cores Sleeping
+;---------------------------------------------------------
     aam   0Ah
-    or    ax,3030h                  ; Converte o valor 5 no caractere '5'
+    or    ax,3030h                  ; Converts value to ASCII
     xchg  ah,al
-    mov   [msg_done_num],ax         ; Injeta o '5' no meio da mensagem
-
-    mov   dx,msg_done               ; Prepara a mensagem de sucesso
-    jmp   .show_message
-
-.fail:
-    mov   dx, msg_fail              ; Fail message
-
-.show_message:
+    mov   [done_msg_num],ax         ; Injects value in ASCII format into the message
+    mov   dx,done_msg               ; Success message
     mov   ah,09h
     int   21h                       ; Imprime na tela
 
-;    mov   ax,4C00h
-;    int   21h                       ; Volta para o DOS
-
 
 ;---------------------------------------------------------
-; Terminate and Stay Resident Routine    
+; Terminate and Stay Resident   
 ;---------------------------------------------------------
     ; Calcula o tamanho da memória a ser mantida blindada pelo DOS
     ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
+stay_resident:
     mov   ax,[trampoline_seg]
     add   ax,0100h
     mov   bx,cs
@@ -178,6 +296,52 @@ pgm_begin:
     mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
     mov   ax,3100h                  ; TSR (Terminate and Stay Resident) interrupt
     int   21h                       ; Backs to DOS
+
+
+;------------------------------------------------------------------------------
+; None Core Responded (Exits without Stay Resident)
+;------------------------------------------------------------------------------
+sleep_fail:
+    mov   dx,sleep_fail_msg         ; Fail message
+    mov   ah,09h
+    int   21h                       ; Show message
+    mov   ax,4C01h                  ; Finish with error code 1
+    int   21h                       ; Backs to DOS
+
+
+;------------------------------------------------------------------------------
+; Checks if A20 Line is Enabled
+; Returns: Zero Flag = 0 = A20 Enabled
+;          Zero Flag = 1 = A20 Disabled
+;
+; Destroys AL.
+;------------------------------------------------------------------------------
+check_A20_sub:
+    push  ds                       ; Saves DS
+    push  es                       ; Saves ES
+    xor   ax,ax
+    mov   ds,ax                    ; DS = 0
+    not   ax
+    mov   es,ax                    ; ES = 0FFFFh
+    mov   al,[0500h]               ; Gets the contents of address 0000:0500h
+    cmp   al,[es:0510h]            ; Compares it with the contents of address
+                                   ; 100500h
+    jne   check_A20_sub_return     ; Returns with Z flag = 0 if values are 
+                                   ; different (A20 is enabled)
+    cli                            ; Disable interrupts to prevent changes
+                                   ; to 0000:0500h
+    not   byte [0500h]             ; Inverts address 0000:0500h content
+    mov   al,[0500h]               ; Gets the inverted value
+    cmp   al,[es:0510h]            ; Compares it with the contents of address
+                                   ; 100500h
+    not   byte [0500h]             ; Restores address 0000:0500h content
+    sti                            ; Re-enable interrupts
+
+; Returns Zero Flag = 0 = A20 Enabled, Zero Flag = 1 = A20 Disabled
+check_A20_sub_return:
+    pop   es                       ; Restores ES
+    pop   ds                       ; Restores DS
+    ret                            ; Returns with ZF clear if A20 is enabled
 
 
 ;---------------------------------------------------------
@@ -225,11 +389,18 @@ delay_0838us:
 sipi_vector    db 0
 trampoline_seg dw 0
 
-msg_fail       db 0Dh, 0Ah, "FALHA: Nenhum n£cleo respondeu.", 0Dh, 0Ah, "$"
-msg_done       db 0Dh, 0Ah, "SUCESSO! "
-msg_done_num   db "00", " n£cleos suspensos.", 0Dh, 0Ah, "$"
-msg_no_support db 0Dh, 0Ah, "Not supported processor.", 0Dh, 0Ah, "$"
-msg_no_mwait   db 0Dh, 0Ah, "Processor does not has monitor/mwait instructions!", 0Dh, 0Ah, "$"
+
+; Messages
+done_msg       db 0Dh, 0Ah, "[MWAIT] "
+done_msg_num   db "00", " cores suspended.", 0Dh, 0Ah
+               db "TSR is loaded.", 0Dh, 0Ah, "$"
+sleep_fail_msg db 0Dh, 0Ah, "FAIL!: None core has been responded.", 0Dh, 0Ah, "$"
+bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
+bad_proc_msg   db 0Dh, 0Ah, "Requires a Pentium 4 or later processor.", 0Dh, 0Ah, "$"
+no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
+no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor not supports C-states.", 0Dh, 0Ah, "$"
+a20_locked_msg db 0Dh, 0Ah, "FAIL!: A20 line is locked.", 0Dh, 0Ah, "$"
+pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
 
 
 ;---------------------------------------------------------
@@ -286,8 +457,8 @@ trampoline_code_start:
 
 ; Converts EDX to a Value 6-0 (C7-C1)
 ;    mov   cl,8
-    mov   cl,7                     ; Only 7 highest C-states will checked.
-                                   ; (C0 is not needed)
+    mov   cl,7                     ; Only C7-C1 C-states will checked.
+                                   ; (less significant nibble C0 is uselles)
 .c_states_count_loop:
     rol   edx,4                    ; Moves the highest C-state to DL low nibble
     test  dl,0Fh                   ; C-state supported?
@@ -307,7 +478,7 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 .sleep_loop:
     cli                            ; Disable interrupts
-    mov   eax,(dummy_var - trampoline_code_start)
+    mov   eax,(trigger_var - trampoline_code_start)
     xor   ecx,ecx                  ; Must be 0
     xor   edx,edx                  ; Must be 0
     monitor
@@ -322,13 +493,14 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 ; Trampoline Code Vars
 ;------------------------------------------------------------------------------
-ap_counter  db 0                   ; Cores counter
+ap_counter  db 0                   ; Cores counter (will incremented for each
+                                   ; core suspended)
     
-; Dummy Variable for the Trampoline Code    
-    align   64
-dummy_var   db 0
+; Monitoring Variable for the Trampoline Code    
+    align   64                     ; 
+trigger_var db 0
 
-trampoline_code_end:
+trampoline_code_end:               ; Marker for trampoline code copy
 
 pgm_end:                           ; Marker for program size calculation
 
