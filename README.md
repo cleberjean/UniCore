@@ -1,2 +1,2 @@
 # BSPOnly/UniCore
-Turn sleep all estra (AP) cores from Processor leaving only BSP core active.
+Turn sleep all extra (AP) cores from Processor leaving only BSP core active.
