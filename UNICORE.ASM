@@ -14,11 +14,14 @@
 ;     05 = Processor does not supports C-states
 ;     06 = A20 line is locked
 ;     07 = Processor in Protected Mode
+;     08 = Windows loaded
 ;
 ; History:
 ;     12jul2026
 ;         + Added several checkings (A20 line, Protected Mode, DOS 2.x,
 ;           MONITOR/MWAIT support, C-states support).
+;         + Added Windows checking.
+;         * Translated some comments.
 ;
 ;------------------------------------------------------------------------------
 
@@ -128,13 +131,30 @@ check_protected_mode:
     and   ah,30h                   ; Checks if bits 13:12 (IOPL) from Flags
                                    ; register are set. (bits 13:12 can not
                                    ; be cleaned in Protected Mode)
-    jz    calc_physical_address    ; If 00, then system in Ring 0 (Real Mode)
+    jz    ckeck_windows            ; If 00, then system in Ring 0 (Real Mode)
 
     ; Processor is in Protected Mode
     mov   dx,pm_msg
     mov   ah,09h
     int   21h
     mov   ax,4C07h                 ; Finish with error code 7
+    int   21h                     
+
+
+;------------------------------------------------------------------------------
+; Checks if UniCore was Called into Windows
+;------------------------------------------------------------------------------
+ckeck_windows:
+    mov   ax,160Ah
+    int   2Fh
+    test  ax,ax
+    jnz   calc_physical_address
+    
+    ; Windows is running
+    mov   dx,windows_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C08h                 ; Finish with error code 8
     int   21h                     
 
 
@@ -161,7 +181,7 @@ calc_physical_address:
 
 
 ;------------------------------------------------------------------------------
-; Copia o Codigo do Trampolim para o Espa‡o Alinhado
+; Copy the Trampoline Code to the Aligned Space
 ;------------------------------------------------------------------------------
     mov   si,trampoline_code_start
     push  es                       ; Preserves ES
@@ -220,37 +240,37 @@ calc_physical_address:
     mov   edi,eax                  ; Base Pointer to EDI
     
     
-    ; INIT IPI (Prepara os n£cleos para o SIPI)
+    ; INIT IPI (Prepares the cores to SIPI)
     xor   eax,eax
     mov   fs:[edi + 310h],eax      ; ICR_HIGH
     mov   eax,000C4500h            ; Comando INIT (Broadcast, Assert)
-    mov   fs:[edi + 300h],eax      ; Dispara o INIT no ICR_LOW
+    mov   fs:[edi + 300h],eax      ; Triggers the INIT on ICR_LOW
 
 .wait_init:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    .wait_init               ; Waits INIT to finish
 
-    ; A Intel recomenda aguardar 10 ms antes de enviar um SIPI ap¢s o INIT
+    ; Intel recommends waiting 10 ms before sending an SIPI after the INIT
     mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
     call  delay_0838us
 
-    ; Envia SIPI pela 1¦ vez
+    ; Sends SIPI by first time
     mov   eax,000C4600h
     or    al,[sipi_vector]
-    mov   fs:[edi + 300h],eax      ; ICR_LOW (Dispara 1o. SIPI)
+    mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 1st SIPI)
 
 .wait_sipi1:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    .wait_sipi1              ; Waits SIPI to finish
 
-    ; Wait 200 microseconds
+    ; Wait 200 microseconds (Intel recommendation)
     push  eax                      ; Preserves ICR_LOW
     mov   ax,239                   ; 239 x 0.838 us ~ 200.3 us
     call  delay_0838us
     pop   eax                      ; Restores ICR_LOW
 
-    ; Envia SIPI pela 2¦ vez
-    mov   fs:[edi + 300h],eax      ; ICR_LOW (Dispara 2o. SIPI)
+    ; Sends SIPI by second time
+    mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 2nd SIPI)
 
 .wait_sipi2:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
@@ -260,8 +280,8 @@ calc_physical_address:
 ;-------------------------------------------------------------------------------
 ; Restores Original FS Value and Re-Enable Interrupts
 ;-------------------------------------------------------------------------------
-    pop   fs                       ; Restaura o limite original de 64KB no FS (Modo Real)
-    sti                            ; Religa as interrup‡”es do BIOS/DOS
+    pop   fs                       ; Restores the original FS content (Real Mode)
+    sti                            ; Restores the interrupts
 
 
 ;-------------------------------------------------------------------------------
@@ -292,12 +312,12 @@ calc_physical_address:
     ; Calcula o tamanho da mem¢ria a ser mantida blindada pelo DOS
     ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
 stay_resident:
-    mov   ax,[trampoline_seg]
-    add   ax,0100h
-    mov   bx,cs
+    mov   ax,[trampoline_seg]       ; 
+    add   ax,0100h                  ; 
+    mov   bx,cs                     ; 
     sub   ax,bx                     ; AX = Paragrafos totais do nosso c¢digo + trampolim
     mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
-    mov   ax,3100h                  ; TSR (Terminate and Stay Resident) interrupt
+    mov   ax,3100h                  ; Stay resident and exit with error code 0
     int   21h                       ; Backs to DOS
 
 
@@ -326,22 +346,22 @@ check_A20_sub:
     mov   ds,ax                    ; DS = 0
     not   ax
     mov   es,ax                    ; ES = 0FFFFh
+    cli                            ; Disable interrupts to prevent changes
+                                   ; to 0000:0500h
     mov   al,[0500h]               ; Gets the contents of address 0000:0500h
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
     jne   check_A20_sub_return     ; Returns with Z flag = 0 if values are 
                                    ; different (A20 is enabled)
-    cli                            ; Disable interrupts to prevent changes
-                                   ; to 0000:0500h
     not   byte [0500h]             ; Inverts address 0000:0500h content
     mov   al,[0500h]               ; Gets the inverted value
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
     not   byte [0500h]             ; Restores address 0000:0500h content
-    sti                            ; Re-enable interrupts
 
 ; Returns Z Flag = 0 = A20 Enabled, Z Flag = 1 = A20 Disabled
 check_A20_sub_return:
+    sti                            ; Re-enable interrupts
     pop   es                       ; Restores ES
     pop   ds                       ; Restores DS
     ret                            ; Returns with ZF clear if A20 is enabled
@@ -375,11 +395,11 @@ delay_0838us:
 .wait_loop:
     in    al,61h
     test  al,20h
-    jnz   .wait_loop               ; Enquanto for 1, o tempo não acabou
+    jnz   .wait_loop               ; While is 1, the time does not has ended
 
     ; 5. Disable GATE 2
     in    al,61h
-    and   al,0FEh                  ; Desliga o bit 0
+    and   al,0FEh                  ; Turn off bit 0
     out   61h,al
     ret
 
@@ -403,6 +423,7 @@ no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instru
 no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor not supports C-states.", 0Dh, 0Ah, "$"
 a20_locked_msg db 0Dh, 0Ah, "FAIL!: A20 line is locked.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
+windows_msg    db 0Dh, 0Ah, "Quit Windows and run me again.", 0Dh, 0Ah, "$"
 
 
 ;---------------------------------------------------------
