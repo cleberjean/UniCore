@@ -362,7 +362,7 @@ sleep_fail:
     mov   dx,sleep_fail_msg         ; Fail message
     mov   ah,09h
     int   21h                       ; Show message
-    mov   ax,4C01h                  ; Finish with error code 1
+    mov   ax,4C02h                  ; Finish with error code 2
     int   21h                       ; Backs to DOS
 
 
