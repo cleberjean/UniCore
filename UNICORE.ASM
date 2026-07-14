@@ -3,18 +3,19 @@
 ; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Compile with: "nasm unicore.asm -o unicore.com -s"
 ; Released under MIT license.
-; 12/jul/2026
+; 14/jul/2026
 ;
 ; Error Codes Returned:
 ;     00 = Successfully and stayed resident
-;     01 = Cores does not respond
-;     02 = DOS not is 2.0 or earlier
-;     03 = Bad processor
-;     04 = Processor does not supports MONITOR/MWAIT instructions
-;     05 = Processor does not supports C-states
-;     06 = A20 line is locked
-;     07 = Processor in Protected Mode
-;     08 = Windows loaded
+;     01 = TSR already loaded
+;     02 = Cores does not respond
+;     03 = DOS not is 2.0 or earlier
+;     04 = Bad processor
+;     05 = Processor does not supports MONITOR/MWAIT instructions
+;     06 = Processor does not supports C-states
+;     07 = A20 line is locked
+;     08 = Processor in Protected Mode
+;     09 = Windows loaded
 ;
 ; History:
 ;     12jul2026
@@ -22,6 +23,11 @@
 ;           MONITOR/MWAIT support, C-states support).
 ;         + Added Windows checking.
 ;         * Translated some comments.
+;     13jul2026
+;         * Changed label check_A20_sub to check_A20.
+;         + Added TSR loaded checking routine.
+;     14jul2026
+;         + Maked changes on memory allocated for trampoline code. 
 ;
 ;------------------------------------------------------------------------------
 
@@ -42,13 +48,35 @@ check_dos:
     mov    ax,3000h
     int    21h                     ; get DOS version
     cmp    al,02h
-    jae    check_processor
+    jae    check_loaded
 
     ; DOS not is 2.0 or earlier
     mov   dx,bad_dos_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C02h                 ; Finish with error code 2
+    mov   ax,4C03h                 ; Finish with error code 3
+    int   21h
+
+
+;------------------------------------------------------------------------------
+; Checks if the Code was Already Loaded
+;------------------------------------------------------------------------------
+check_loaded:
+    mov   ax,0C400h
+    mov   bx,'UC'                  ; BX = password for the handler
+    int   2Fh
+    cmp   al,0FFh
+    jne   check_processor
+
+    ; Checks the handler confirmation
+    cmp   bx,'OK'                  ; Confirms 
+    jne   check_processor          ; if different, code did not loaded yet
+    
+    ; Code already loaded
+    mov   dx,loaded_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C01h                 ; Finish with error code 1
     int   21h
 
 
@@ -61,7 +89,7 @@ check_processor:
 ;    mov   dx,bad_proc_msg
 ;    mov   ah,09h
 ;    int   21h
-;    mov   ax,4C03h                 ; Finish with error code 3
+;    mov   ax,4C04h                 ; Finish with error code 4
 ;    int   21h
 
 
@@ -72,14 +100,14 @@ check_mwait:
     xor   eax,eax
     mov   al,01h
     cpuid
-    bt    dx,3
+    bt    cx,3
     jc    check_c_states
 
     ; Processor does not supports MONITOR/MWAIT instructions
     mov   dx,no_mwait_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C04h                 ; Finish with error code 4
+    mov   ax,4C05h                 ; Finish with error code 5
     int   21h
 
     
@@ -97,7 +125,7 @@ check_c_states:
     mov   dx,no_c_state_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C05h                 ; Finish with error code 5
+    mov   ax,4C06h                 ; Finish with error code 6
     int   21h
 
 
@@ -105,14 +133,14 @@ check_c_states:
 ; Checks A20 Line
 ;------------------------------------------------------------------------------
 check_A20_line:
-    call  check_A20_sub           ; Checks A20 Line (Zero Flag = 1, A20 locked)
+    call  check_A20                ; Checks A20 Line (Zero Flag = 1, A20 locked)
     jnz   check_protected_mode
      
     ; A20 Line is Locked
     mov   dx,a20_locked_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C06h                 ; Finish with error code 6
+    mov   ax,4C07h                 ; Finish with error code 7
     int   21h
 
 
@@ -131,20 +159,20 @@ check_protected_mode:
     and   ah,30h                   ; Checks if bits 13:12 (IOPL) from Flags
                                    ; register are set. (bits 13:12 can not
                                    ; be cleaned in Protected Mode)
-    jz    ckeck_windows            ; If 00, then system in Ring 0 (Real Mode)
+    jz    check_windows            ; If 00, then system in Ring 0 (Real Mode)
 
     ; Processor is in Protected Mode
     mov   dx,pm_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C07h                 ; Finish with error code 7
+    mov   ax,4C08h                 ; Finish with error code 8
     int   21h                     
 
 
 ;------------------------------------------------------------------------------
 ; Checks if UniCore was Called into Windows
 ;------------------------------------------------------------------------------
-ckeck_windows:
+check_windows:
     mov   ax,160Ah
     int   2Fh
     test  ax,ax
@@ -154,7 +182,7 @@ ckeck_windows:
     mov   dx,windows_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C08h                 ; Finish with error code 8
+    mov   ax,4C09h                 ; Finish with error code 9
     int   21h                     
 
 
@@ -250,7 +278,7 @@ calc_physical_address:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    .wait_init               ; Waits INIT to finish
 
-    ; Intel recommends waiting 10 ms before sending an SIPI after the INIT
+    ; Intel recommends waiting 10 ms before sending a SIPI after the INIT
     mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
     call  delay_0838us
 
@@ -310,11 +338,17 @@ calc_physical_address:
 ; Terminate and Stay Resident   
 ;-------------------------------------------------------------------------------
     ; Calcula o tamanho da mem¢ria a ser mantida blindada pelo DOS
-    ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
+;    ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
+    ; Limite isolado 2 = trampoline_seg + 10h (Soma 256 bytes convertidos para segmento)
 stay_resident:
+    call  install_int2f_handler     ; Installs a new handler for INT 2Fh
+    mov   ah,49h                    ; Free environment vars memory allocation
+    mov   es,[cs:002Ch]             ; CS = segment of block to free (environment vars)
+    int   21h                       ; Free environment vars
     mov   ax,[trampoline_seg]       ; 
-    add   ax,0100h                  ; 
-    mov   bx,cs                     ; 
+;    add   ax,0100h                  ; Adds 256 segments of 16 bytes (4096 bytes)
+    add   ax,0010h                  ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 103 bytes)
+    mov   bx,cs                     ; Copies initial segment to BX
     sub   ax,bx                     ; AX = Paragrafos totais do nosso c¢digo + trampolim
     mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
     mov   ax,3100h                  ; Stay resident and exit with error code 0
@@ -339,7 +373,7 @@ sleep_fail:
 ;
 ; Destroys AL.
 ;------------------------------------------------------------------------------
-check_A20_sub:
+check_A20:
     push  ds                       ; Saves DS
     push  es                       ; Saves ES
     xor   ax,ax
@@ -351,7 +385,7 @@ check_A20_sub:
     mov   al,[0500h]               ; Gets the contents of address 0000:0500h
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
-    jne   check_A20_sub_return     ; Returns with Z flag = 0 if values are 
+    jne   check_A20_return         ; Returns with Z flag = 0 if values are
                                    ; different (A20 is enabled)
     not   byte [0500h]             ; Inverts address 0000:0500h content
     mov   al,[0500h]               ; Gets the inverted value
@@ -360,7 +394,7 @@ check_A20_sub:
     not   byte [0500h]             ; Restores address 0000:0500h content
 
 ; Returns Z Flag = 0 = A20 Enabled, Z Flag = 1 = A20 Disabled
-check_A20_sub_return:
+check_A20_return:
     sti                            ; Re-enable interrupts
     pop   es                       ; Restores ES
     pop   ds                       ; Restores DS
@@ -404,6 +438,47 @@ delay_0838us:
     ret
 
 
+;------------------------------------------------------------------------------
+; Installs New INT 2Fh Handler
+;------------------------------------------------------------------------------
+install_int2f_handler:
+    mov   ax,352Fh                 ; AL = interrupt to request vector
+    int   21h                      ; Gets interrupt 2Fh vector in ES:BX
+    mov   [old_int2f],bx           ; Saves old handler vector offset
+    mov   [old_int2f + 2],es       ; Saves old handler vector segment
+
+    push  cs
+    pop   ds                       ; Ensures DS = code segment
+    mov   dx,int2f_handler
+    mov   ax,252Fh                 ; AL = interrupt to change
+    int   21h                      ; Installs new handler into interrupt 2Fh
+    ret
+
+
+;------------------------------------------------------------------------------
+; New INT 2Fh Handler
+;------------------------------------------------------------------------------
+int2f_handler:
+    pushf                          ; Preserves flags register
+    cmp   ax,0C400h                ; Checks if was function C400h that was called
+    jne   chain                    ; Wasn't function 4C00h called
+    cmp   bx,"UC"                  ; Confirms the caller program
+    jne   chain                    ; Wasn't UniCore program that called
+    
+    popf                           ; Restores flags register
+    mov   bx,"OK"                  ; Confirmation characters
+    mov   al,0FFh                  ; Function supported flag (MANDATORY!)
+    iret                           ; 
+  
+chain:
+    popf                           ; Restores original flags register
+    jmp   far[cs:old_int2f]        ; Skips to the old handler
+
+
+; Old Interrupt 2Fh Handler Vector
+old_int2f dd 0
+
+
 ;---------------------------------------------------------
 ; DATA AREA
 ;---------------------------------------------------------
@@ -417,6 +492,7 @@ trampoline_seg dw 0
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_num   db "00", " cores suspended. TSR loaded.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "FAIL!: None core has been responded.", 0Dh, 0Ah, "$"
+loaded_msg     db 0Dh, 0Ah, "[C400] The code is already loaded.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 bad_proc_msg   db 0Dh, 0Ah, "Requires a Pentium 4 or later processor.", 0Dh, 0Ah, "$"
 no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
@@ -460,6 +536,7 @@ gdt_base_address:
 
 ;------------------------------------------------------------------------------
 ; Trampoline Code for All Cores    
+; Must have 256 bytes reserved for it (code + ap_counter has 103 bytes).
 ;------------------------------------------------------------------------------
     section .text
 
@@ -469,7 +546,7 @@ trampoline_code_start:
     mov   ds,ax
     mov   es,ax
     mov   ss,ax
-    mov   sp,1000h                 ; 4KB Page RAM top + 1
+    mov   sp,0100h                 ; Top of trampoline space memory (256)
 
     lock inc byte [(ap_counter - trampoline_code_start)]  ; Increments the core counter at each core initialized
 
@@ -501,7 +578,11 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 .sleep_loop:
     cli                            ; Disable interrupts
-    mov   eax,(monitored_addr - trampoline_code_start)
+;    mov   eax,(monitored_addr - trampoline_code_start)
+    xor   eax,eax
+    mov   al,80h                   ; Address to monitoring (128 bytes after 
+                                   ; offset 0), allowing a cache granularity 
+                                   ; up to 128 bytes.    
     xor   ecx,ecx                  ; Must be 0
     xor   edx,edx                  ; Must be 0
     monitor
@@ -514,12 +595,16 @@ trampoline_code_start:
 
 
 ;------------------------------------------------------------------------------
-; Trampoline Code Vars
+; Trampoline Code Var
 ;------------------------------------------------------------------------------
 ap_counter     db 0                ; Cores counter (will incremented for each
                                    ; core suspended)
-    align   64                     ; Must be aligned with 64 bytes
-monitored_addr db 0                ; Monitoring Address for MONITOR instruction
+
+;end_signature  dw 0xAA55          ; ONLY FOR DEBBUGING (to count the
+                                   ; assembled trampoline code size)
+
+;    align   64                     ; Must be aligned with 64 bytes
+;monitored_addr db 0                ; Monitoring Address for MONITOR instruction
 
 trampoline_code_end:               ; Marker for trampoline code copy
 
