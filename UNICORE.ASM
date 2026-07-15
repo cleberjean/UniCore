@@ -1,18 +1,18 @@
 ;------------------------------------------------------------------------------
-; UniCore - Parks All Extra (AP) Cores, Leaving Only the BSP Running
+; UniCore - Put to Sleep All Extra (AP) Cores, Leaving Only the BSP Active
 ; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Compile with: "nasm unicore.asm -o unicore.com -s"
 ; Released under MIT license.
-; 14/jul/2026
+; 15/jul/2026
 ;
 ; Error Codes Returned:
 ;     00 = Successfully and stayed resident
 ;     01 = TSR already loaded
-;     02 = Cores does not respond
-;     03 = DOS not is 2.0 or earlier
+;     02 = Cores didn't respond
+;     03 = DOS not is 2.0 or later
 ;     04 = Bad processor
-;     05 = Processor does not supports MONITOR/MWAIT instructions
-;     06 = Processor does not supports C-states
+;     05 = Processor does not support MONITOR/MWAIT instructions
+;     06 = Processor does not support C-states
 ;     07 = A20 line is locked
 ;     08 = Processor in Protected Mode
 ;     09 = Windows loaded
@@ -27,12 +27,33 @@
 ;         * Changed label check_A20_sub to check_A20.
 ;         + Added TSR loaded checking routine.
 ;     14jul2026
-;         + Maked changes on memory allocated for trampoline code. 
+;         + Made changes on memory allocated for trampoline code. 
+;         + Created Error Codes Contants.
+;     15jul2026
+;         * Changed done_msg_num label to done_msg_count.
+;         * Adjusted more some comments.
 ;
 ;------------------------------------------------------------------------------
 
     bits  16
     org   100h
+
+
+;------------------------------------------------------------------------------
+; Constants (EC = Error Code)   
+;------------------------------------------------------------------------------
+
+    EC_EXIT_SUCCESS   equ 0x00
+    EC_ALREADY_LOADED equ 0x01
+    EC_NO_RESPONSE    equ 0x02
+    EC_BAD_DOS        equ 0x03
+    EC_BAD_PROCESSOR  equ 0x04
+    EC_NO_MONIT_MWAIT equ 0x05
+    EC_NO_C_STATES    equ 0x06
+    EC_A20_DISABLED   equ 0x07
+    EC_PROTECTED_MODE equ 0x08
+    EC_WINDOWS_LOADED equ 0x09
+
 
     section .text
 
@@ -54,7 +75,7 @@ check_dos:
     mov   dx,bad_dos_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C03h                 ; Finish with error code 3
+    mov   ax,4C00h + EC_BAD_DOS
     int   21h
 
 
@@ -76,7 +97,7 @@ check_loaded:
     mov   dx,loaded_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C01h                 ; Finish with error code 1
+    mov   ax,4C00h + EC_ALREADY_LOADED
     int   21h
 
 
@@ -89,7 +110,7 @@ check_processor:
 ;    mov   dx,bad_proc_msg
 ;    mov   ah,09h
 ;    int   21h
-;    mov   ax,4C04h                 ; Finish with error code 4
+;    mov   ax,4C00h + EC_BAD_PROCESSOR
 ;    int   21h
 
 
@@ -107,7 +128,7 @@ check_mwait:
     mov   dx,no_mwait_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C05h                 ; Finish with error code 5
+    mov   ax,4C00h + EC_NO_MONIT_MWAIT
     int   21h
 
     
@@ -125,7 +146,7 @@ check_c_states:
     mov   dx,no_c_state_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C06h                 ; Finish with error code 6
+    mov   ax,4C00h + EC_NO_C_STATES
     int   21h
 
 
@@ -136,11 +157,11 @@ check_A20_line:
     call  check_A20                ; Checks A20 Line (Zero Flag = 1, A20 locked)
     jnz   check_protected_mode
      
-    ; A20 Line is Locked
+    ; A20 line is disabled
     mov   dx,a20_locked_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C07h                 ; Finish with error code 7
+    mov   ax,4C00h + EC_A20_DISABLED
     int   21h
 
 
@@ -165,12 +186,12 @@ check_protected_mode:
     mov   dx,pm_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C08h                 ; Finish with error code 8
+    mov   ax,4C00h + EC_PROTECTED_MODE
     int   21h                     
 
 
 ;------------------------------------------------------------------------------
-; Checks if UniCore was Called into Windows
+; Checks if UniCore was Called Into Windows
 ;------------------------------------------------------------------------------
 check_windows:
     mov   ax,160Ah
@@ -182,7 +203,7 @@ check_windows:
     mov   dx,windows_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C09h                 ; Finish with error code 9
+    mov   ax,4C00h + EC_WINDOWS_LOADED
     int   21h                     
 
 
@@ -274,9 +295,9 @@ calc_physical_address:
     mov   eax,000C4500h            ; Comando INIT (Broadcast, Assert)
     mov   fs:[edi + 300h],eax      ; Triggers the INIT on ICR_LOW
 
-.wait_init:
+wait_init:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
-    jc    .wait_init               ; Waits INIT to finish
+    jc    wait_init                ; Waits INIT to finish
 
     ; Intel recommends waiting 10 ms before sending a SIPI after the INIT
     mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
@@ -287,9 +308,9 @@ calc_physical_address:
     or    al,[sipi_vector]
     mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 1st SIPI)
 
-.wait_sipi1:
+wait_sipi1:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
-    jc    .wait_sipi1              ; Waits SIPI to finish
+    jc    wait_sipi1               ; Waits SIPI to finish
 
     ; Wait 200 microseconds (Intel recommendation)
     push  eax                      ; Preserves ICR_LOW
@@ -300,9 +321,9 @@ calc_physical_address:
     ; Sends SIPI by second time
     mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 2nd SIPI)
 
-.wait_sipi2:
+wait_sipi2:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
-    jc    .wait_sipi2              ; Waits SIPI to finish
+    jc    wait_sipi2               ; Waits SIPI to finish
 
 
 ;-------------------------------------------------------------------------------
@@ -313,13 +334,13 @@ calc_physical_address:
 
 
 ;-------------------------------------------------------------------------------
-; Get Number of Cores Sleeping
+; Gets the Number of Sleeping Cores
 ;-------------------------------------------------------------------------------
     mov   ax,[trampoline_seg]
     mov   es,ax
     mov   al,es:[(ap_counter - trampoline_code_start)]
     cmp   al,0                      ; Checks how much cores responded
-    je    sleep_fail                ; None core responded (exits without stay resident)
+    je    sleep_fail                ; No cores responded (exits without stay resident)
 
 
 ;-------------------------------------------------------------------------------
@@ -328,7 +349,7 @@ calc_physical_address:
     aam   0Ah
     or    ax,3030h                  ; Converts value to ASCII
     xchg  ah,al
-    mov   [done_msg_num],ax         ; Injects value in ASCII format into the message
+    mov   [done_msg_count],ax       ; Injects value in ASCII format into the message
     mov   dx,done_msg               ; Success message
     mov   ah,09h
     int   21h                       ; Imprime na tela
@@ -347,7 +368,7 @@ stay_resident:
     int   21h                       ; Free environment vars
     mov   ax,[trampoline_seg]       ; 
 ;    add   ax,0100h                  ; Adds 256 segments of 16 bytes (4096 bytes)
-    add   ax,0010h                  ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 103 bytes)
+    add   ax,0010h                  ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 75 bytes)
     mov   bx,cs                     ; Copies initial segment to BX
     sub   ax,bx                     ; AX = Paragrafos totais do nosso c¢digo + trampolim
     mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
@@ -356,13 +377,13 @@ stay_resident:
 
 
 ;------------------------------------------------------------------------------
-; None Core Responded (Exits without Stay Resident)
+; No Core Responded (Exits without Stay Resident)
 ;------------------------------------------------------------------------------
 sleep_fail:
     mov   dx,sleep_fail_msg         ; Fail message
     mov   ah,09h
     int   21h                       ; Show message
-    mov   ax,4C02h                  ; Finish with error code 2
+    mov   ax,4C00h + EC_NO_RESPONSE
     int   21h                       ; Backs to DOS
 
 
@@ -376,26 +397,26 @@ sleep_fail:
 check_A20:
     push  ds                       ; Saves DS
     push  es                       ; Saves ES
-    xor   ax,ax
-    mov   ds,ax                    ; DS = 0
-    not   ax
-    mov   es,ax                    ; ES = 0FFFFh
-    cli                            ; Disable interrupts to prevent changes
-                                   ; to 0000:0500h
+    xor   ax,ax                    ; 
+    mov   ds,ax                    ; DS = segment 0
+    not   ax                       ; AX = 0FFFFh
+    mov   es,ax                    ; ES = 0FFFFh (1MB boundary)
     mov   al,[0500h]               ; Gets the contents of address 0000:0500h
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
     jne   check_A20_return         ; Returns with Z flag = 0 if values are
                                    ; different (A20 is enabled)
+    cli                            ; Disable interrupts to prevent changes
+                                   ; to 0000:0500h
     not   byte [0500h]             ; Inverts address 0000:0500h content
     mov   al,[0500h]               ; Gets the inverted value
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
     not   byte [0500h]             ; Restores address 0000:0500h content
+    sti                            ; Re-enable interrupts
 
 ; Returns Z Flag = 0 = A20 Enabled, Z Flag = 1 = A20 Disabled
 check_A20_return:
-    sti                            ; Re-enable interrupts
     pop   es                       ; Restores ES
     pop   ds                       ; Restores DS
     ret                            ; Returns with ZF clear if A20 is enabled
@@ -426,10 +447,10 @@ delay_0838us:
     out   61h,al                   ; Updates port status
 
     ; Listen Channel 2 (Bit 5)
-.wait_loop:
+delay_wait_loop:
     in    al,61h
     test  al,20h
-    jnz   .wait_loop               ; While is 1, the time does not has ended
+    jnz   delay_wait_loop          ; While is 1, the time does not has ended
 
     ; 5. Disable GATE 2
     in    al,61h
@@ -442,15 +463,14 @@ delay_0838us:
 ; Installs New INT 2Fh Handler
 ;------------------------------------------------------------------------------
 install_int2f_handler:
-    mov   ax,352Fh                 ; AL = interrupt to request vector
+    mov   ax,352Fh                 ; AL = interrupt to request vector (2Fh)
     int   21h                      ; Gets interrupt 2Fh vector in ES:BX
     mov   [old_int2f],bx           ; Saves old handler vector offset
     mov   [old_int2f + 2],es       ; Saves old handler vector segment
-
     push  cs
     pop   ds                       ; Ensures DS = code segment
     mov   dx,int2f_handler
-    mov   ax,252Fh                 ; AL = interrupt to change
+    mov   ax,252Fh                 ; AL = interrupt to change (2Fh)
     int   21h                      ; Installs new handler into interrupt 2Fh
     ret
 
@@ -471,12 +491,15 @@ int2f_handler:
     iret                           ; 
   
 chain:
-    popf                           ; Restores original flags register
+    popf                           ; Restores original flags register content
+                                   ; to the old interrupt 2Fh handler.
     jmp   far[cs:old_int2f]        ; Skips to the old handler
 
 
 ; Old Interrupt 2Fh Handler Vector
 old_int2f dd 0
+
+;------------------------------------------------------------------------------
 
 
 ;---------------------------------------------------------
@@ -488,18 +511,20 @@ sipi_vector    db 0
 trampoline_seg dw 0
 
 
+;------------------------------------------------------------------------------
 ; Messages
+;------------------------------------------------------------------------------
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
-done_msg_num   db "00", " cores suspended. TSR loaded.", 0Dh, 0Ah, "$"
-sleep_fail_msg db 0Dh, 0Ah, "FAIL!: None core has been responded.", 0Dh, 0Ah, "$"
+done_msg_count db "00", " cores sleeping. TSR loaded.", 0Dh, 0Ah, "$"
+sleep_fail_msg db 0Dh, 0Ah, "FAIL!: No cores response.", 0Dh, 0Ah, "$"
 loaded_msg     db 0Dh, 0Ah, "[C400] The code is already loaded.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
-bad_proc_msg   db 0Dh, 0Ah, "Requires a Pentium 4 or later processor.", 0Dh, 0Ah, "$"
+bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
 no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
-no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor not supports C-states.", 0Dh, 0Ah, "$"
-a20_locked_msg db 0Dh, 0Ah, "FAIL!: A20 line is locked.", 0Dh, 0Ah, "$"
+no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh, 0Ah, "$"
+a20_locked_msg db 0Dh, 0Ah, "FAIL!: The A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
-windows_msg    db 0Dh, 0Ah, "Quit Windows and run me again.", 0Dh, 0Ah, "$"
+windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
 
 
 ;---------------------------------------------------------
@@ -536,7 +561,8 @@ gdt_base_address:
 
 ;------------------------------------------------------------------------------
 ; Trampoline Code for All Cores    
-; Must have 256 bytes reserved for it (code + ap_counter has 103 bytes).
+; Must have 256 bytes reserved for it (code + ap_counter has 75 bytes).
+; Will be copied for start of next 4KB page after the UniCore. 
 ;------------------------------------------------------------------------------
     section .text
 
@@ -548,6 +574,7 @@ trampoline_code_start:
     mov   ss,ax
     mov   sp,0100h                 ; Top of trampoline space memory (256)
 
+    ; Counts the number of cores put to sleep
     lock inc byte [(ap_counter - trampoline_code_start)]  ; Increments the core counter at each core initialized
 
     ; Gets Maximum C-States Supported by Processor
@@ -556,17 +583,14 @@ trampoline_code_start:
     cpuid
 
 ; Converts EDX to a Value 6-0 (C7-C1)
-;    mov   cl,8
     mov   cl,7                     ; Only C7-C1 C-states will checked.
                                    ; (less significant nibble C0 is uselles)
-.c_states_count_loop:
+c_states_count_loop:
     rol   edx,4                    ; Moves the highest C-state to DL low nibble
     test  dl,0Fh                   ; C-state supported?
-    loopz .c_states_count_loop     ; No. Then checks next C-state
+    loopz c_states_count_loop      ; No. Then checks next C-state
     and   dl,0Fh                   ; Isolates the number of sub-states supported
     dec   dl                       ; Gets highest supported sub-state
-
-;    dec   cl                       ; Converts to MWAIT C-state hint (use with CL = 8)
     shl   cl,4                     ; Moves the highest C-state to CL high nibble
                                    ; Example: C5 = 40h
     mov   bl,cl                    ; Saves C-state hint in BL
@@ -578,7 +602,8 @@ trampoline_code_start:
 ;------------------------------------------------------------------------------
 .sleep_loop:
     cli                            ; Disable interrupts
-;    mov   eax,(monitored_addr - trampoline_code_start)
+    
+    ; Starts MONITOR instruction
     xor   eax,eax
     mov   al,80h                   ; Address to monitoring (128 bytes after 
                                    ; offset 0), allowing a cache granularity 
@@ -587,24 +612,20 @@ trampoline_code_start:
     xor   edx,edx                  ; Must be 0
     monitor
 
+    ; Call MWAIT instruction
     xor    eax,eax                 ; EAX = 0 = C1 state (see Intel ISA SDM Vol.2 "MWAIT Hints Register (EAX)" table)
     mov    al,bl                   ; EAX = Highest supported C-state and sub-state
     xor    ecx,ecx
     mwait
+    
     jmp    .sleep_loop             ; Reexecutes the routine if core wake up
 
 
 ;------------------------------------------------------------------------------
-; Trampoline Code Var
+; Trampoline Cores Counter Var
 ;------------------------------------------------------------------------------
 ap_counter     db 0                ; Cores counter (will incremented for each
                                    ; core suspended)
-
-;end_signature  dw 0xAA55          ; ONLY FOR DEBBUGING (to count the
-                                   ; assembled trampoline code size)
-
-;    align   64                     ; Must be aligned with 64 bytes
-;monitored_addr db 0                ; Monitoring Address for MONITOR instruction
 
 trampoline_code_end:               ; Marker for trampoline code copy
 
