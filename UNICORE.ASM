@@ -113,9 +113,12 @@ check_loaded:
     int   21h
 
 
+;------------------------------------------------------------------------------
+; Checks if Processor Supports CPUID Instruction
+;------------------------------------------------------------------------------
 check_processor:
-    call  check_cpuid
-    jnc   check_mwait
+    call  check_cpuid_support      ; Returns CY = 0 if support
+    jnc   check_mwait              ; Processor supports CPUID instruction
 
     ; Processor not has CPUID instruction (then not is a Pentium 4)
     mov   dx,bad_proc_msg
@@ -408,7 +411,7 @@ sleep_fail:
 ;
 ; AUTHOR NOTE: Only CX register was changed to BX.
 ;-------------------------------------------------------------------------------
-check_cpuid:
+check_cpuid_support:
 
 ;-------------------------------------------------------------------------------
 ; 8086/8088 Double Checking Detection
