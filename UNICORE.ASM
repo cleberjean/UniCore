@@ -3,7 +3,7 @@
 ; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Compile with: "nasm unicore.asm -o unicore.com -s"
 ; Released under MIT license.
-; 15/jul/2026
+; 16/jul/2026
 ;
 ; Error Codes Returned:
 ;     00 = Successfully and stayed resident
@@ -32,6 +32,9 @@
 ;     15jul2026
 ;         * Changed done_msg_num label to done_msg_count.
 ;         * Adjusted more some comments.
+;     16jul2026
+;         + Added processor checking for support of CPUID instruction
+;           (returns bad_proc_msg)
 ;
 ;------------------------------------------------------------------------------
 
@@ -59,7 +62,16 @@
 
 pgm_begin:
     push  cs
-    pop   ds
+    pop   ax
+    mov   ds,ax                    ; Ensures DS = CS
+    mov   es,ax                    ; Ensures ES = CS
+
+;------------------------------------------------------------------------------
+; Show Program Title
+;------------------------------------------------------------------------------
+    mov    dx,title_msg
+    mov    ah,09h
+    int    21h
 
 
 ;------------------------------------------------------------------------------
@@ -102,16 +114,15 @@ check_loaded:
 
 
 check_processor:
-;    call  get_proc_id
-;    cmp   al,NN
-;    jae   check_mwait
+    call  check_cpuid
+    jnc   check_mwait
 
-;    ; Processor not is a Pentium 4
-;    mov   dx,bad_proc_msg
-;    mov   ah,09h
-;    int   21h
-;    mov   ax,4C00h + EC_BAD_PROCESSOR
-;    int   21h
+    ; Processor not has CPUID instruction (then not is a Pentium 4)
+    mov   dx,bad_proc_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C00h + EC_BAD_PROCESSOR
+    int   21h
 
 
 ;------------------------------------------------------------------------------
@@ -226,7 +237,7 @@ calc_physical_address:
 
     ; SIPI Vector already is in AH!
     ; (I.E.: If segment is 0x2100, AH is 0x21)
-    mov   [sipi_vector],ah          ; Saves SIPI vector in memory
+    mov   [sipi_vector],ah         ; Saves SIPI vector in memory
 
 
 ;------------------------------------------------------------------------------
@@ -339,20 +350,20 @@ wait_sipi2:
     mov   ax,[trampoline_seg]
     mov   es,ax
     mov   al,es:[(ap_counter - trampoline_code_start)]
-    cmp   al,0                      ; Checks how much cores responded
-    je    sleep_fail                ; No cores responded (exits without stay resident)
+    cmp   al,0                     ; Checks how much cores responded
+    je    sleep_fail               ; No cores responded (exits without stay resident)
 
 
 ;-------------------------------------------------------------------------------
 ; Show Number of Cores Sleeping
 ;-------------------------------------------------------------------------------
     aam   0Ah
-    or    ax,3030h                  ; Converts value to ASCII
+    or    ax,3030h                 ; Converts value to ASCII
     xchg  ah,al
-    mov   [done_msg_count],ax       ; Injects value in ASCII format into the message
-    mov   dx,done_msg               ; Success message
+    mov   [done_msg_count],ax      ; Injects value in ASCII format into the message
+    mov   dx,done_msg              ; Success message
     mov   ah,09h
-    int   21h                       ; Imprime na tela
+    int   21h                      ; Imprime na tela
 
 
 ;-------------------------------------------------------------------------------
@@ -362,29 +373,150 @@ wait_sipi2:
 ;    ; Limite isolado = trampoline_seg + 100h (Soma 4096 bytes convertidos para segmento)
     ; Limite isolado 2 = trampoline_seg + 10h (Soma 256 bytes convertidos para segmento)
 stay_resident:
-    call  install_int2f_handler     ; Installs a new handler for INT 2Fh
-    mov   ah,49h                    ; Free environment vars memory allocation
-    mov   es,[cs:002Ch]             ; CS = segment of block to free (environment vars)
-    int   21h                       ; Free environment vars
-    mov   ax,[trampoline_seg]       ; 
-;    add   ax,0100h                  ; Adds 256 segments of 16 bytes (4096 bytes)
-    add   ax,0010h                  ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 75 bytes)
-    mov   bx,cs                     ; Copies initial segment to BX
-    sub   ax,bx                     ; AX = Paragrafos totais do nosso c¢digo + trampolim
-    mov   dx,ax                     ; DX = Par grafos a manter na mem¢ria
-    mov   ax,3100h                  ; Stay resident and exit with error code 0
-    int   21h                       ; Backs to DOS
+    call  install_int2f_handler    ; Installs a new handler for INT 2Fh
+    mov   ah,49h                   ; Free environment vars memory allocation
+    mov   es,[cs:002Ch]            ; CS = segment of block to free (environment vars)
+    int   21h                      ; Free environment vars
+    mov   ax,[trampoline_seg]      ; 
+;    add   ax,0100h                 ; Adds 256 segments of 16 bytes (4096 bytes)
+    add   ax,0010h                 ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 75 bytes)
+    mov   bx,cs                    ; Copies initial segment to BX
+    sub   ax,bx                    ; AX = Paragrafos totais do nosso c¢digo + trampolim
+    mov   dx,ax                    ; DX = Par grafos a manter na mem¢ria
+    mov   ax,3100h                 ; Stay resident and exit with error code 0
+    int   21h                      ; Backs to DOS
 
 
 ;------------------------------------------------------------------------------
 ; No Core Responded (Exits without Stay Resident)
 ;------------------------------------------------------------------------------
 sleep_fail:
-    mov   dx,sleep_fail_msg         ; Fail message
+    mov   dx,sleep_fail_msg        ; Fail message
     mov   ah,09h
-    int   21h                       ; Show message
+    int   21h                      ; Show message
     mov   ax,4C00h + EC_NO_RESPONSE
-    int   21h                       ; Backs to DOS
+    int   21h                      ; Backs to DOS
+
+
+;-------------------------------------------------------------------------------
+; Checks for CPUID Instruction Support
+; Returns CY = 0 if supported, otherwise CY= 1
+; --------------------------------------------
+; Code taken from Intel Pentium Processor User's Manual, Volume 3,
+; Chapter 5.3 - SAMPLE CPUID IDENTIFICATION/FPU DETECTION CODE, pages 129 to
+; 123, from 1993. Example 5-1. CPU Identification and FPU Detection.
+;
+; AUTHOR NOTE: Only CX register was changed to BX.
+;-------------------------------------------------------------------------------
+check_cpuid:
+
+;-------------------------------------------------------------------------------
+; 8086/8088 Double Checking Detection
+; -----------------------------------
+; Processors later of 8086 always push SP to stack, and then decrement SP
+; by 2. 8086 always decrement SP by 2 and then push it on stack.
+; Also bits 12..15 are always set on the 8086 processor.
+; [MODIFIED] Test only bits 14 and 15, due detection fail when in Protected
+;            Mode (bits 12 and 13 (IOPL) is always 11).
+;-------------------------------------------------------------------------------
+check_8086:
+    ; Checks SP (1st test)
+    push  sp                       ; Push SP
+    pop   ax                       ; And restore in AX
+    sub   ax,sp                    ; Will clear AX if CPU is an 80286 or later
+    jnz   no_cpuid_near_jump       ; Processor is an 80186 or early
+
+    ; Checks FLAGS register (2nd test)
+    pushf
+    pop   bx                       ; Preserves original FLAGS in BX
+    mov   ax,bx                    ; Copy flags to AX
+    and   ax,0FFFh                 ; Clear bits 12..15
+    push  ax
+    popf                           ; Clear bits 12..15 in FLAGS
+    pushf
+    pop   ax                       ; Copy flags again to AX
+    and   ax,0C000h                ; Check only if bits 15:14 still remains clean
+                                   ; (Protected Mode locks bits 13:12 (IOPL) in 1)
+    jnz   no_cpuid_near_jump       ; Bits 14 and 15 from Flags Register remain set (processor is an 8086/80186)
+
+
+;-------------------------------------------------------------------------------
+; Intel 286 CPU Checking
+; ----------------------
+; Bits 12-15 are always clear on the Intel 286 processor.
+;-------------------------------------------------------------------------------
+test_286:
+    mov   ax,bx                    ; Copy flags to AX
+    or    ax,0F000h                ; Set bits 12..15
+    push  ax
+    popf
+    pushf
+    pop   ax
+    and   ax,0F000h                ; If bits 12..15 are cleared, then CPU=80286
+    jnz   test_386                 ; Processor is an 80386
+
+
+;-------------------------------------------------------------------------------
+; Conditional Near Jump Fix for the 16 bits Processors
+; Processors 8086/8088, 80186 and 80286 has Conditional Short Jumps Only.
+;-------------------------------------------------------------------------------
+no_cpuid_near_jump:
+    jmp   no_cpuid
+
+
+            ;----------------------------------------------------;
+            ; Starting here, is safe to use 32 bits instructions ;
+            ;----------------------------------------------------;
+
+;-------------------------------------------------------------------------------
+; Intel386 CPU Checking
+; ---------------------
+; The AC bit, bit #18, is a new bit introduced in the EFLAGS
+; register on the Intel486 DX CPU to generate alignment faults.
+; This bit can not be set on the Intel386 CPU.
+;-------------------------------------------------------------------------------
+test_386:
+    push   bx
+    popf                           ; Restore original FLAGS
+    pushfd
+    pop   ebx                      ; Preserves original EFLAGS in EBX
+    mov   eax,ebx                  ; Copy original EFLAGS to EAX
+    xor   eax,40000h               ; Flip AC bit in EFLAGS
+    push  eax
+    popfd
+    pushfd
+    pop   eax                      ; Get new EFLAGS value
+    xor   eax,ebx                  ; Compare original EFLAGS with new EFLAGS. Can't
+                                   ; toggle AC bit, CPU=80386
+    jz    no_cpuid
+
+test_486:
+    mov   eax,ebx                  ; Copy original EFLAGS to EAX
+    xor   eax,200000h              ; Flip ID bit in EFLAGS
+    push  eax
+    popfd
+    pushfd
+    pop   eax                      ; Get new EFLAGS value
+    xor   eax,ebx                  ; Compare original EFLAGS with new EFFAGS
+    jz    no_cpuid                 ; If ID bit cannot be changed, CPU=80486
+                                   ; without CPUID instruction functionality
+
+;-------------------------------------------------------------------------------
+; CPUID Instruction is Supported (returns CY = 0)
+;-------------------------------------------------------------------------------
+    push  ebx
+    popfd                          ; Restores EFLAGS to original content
+    clc                            ; Processor has CPUID (CY = 0)
+    ret
+
+;-------------------------------------------------------------------------------
+; CPUID Instruction not is Supported (returns CY = 1)
+;-------------------------------------------------------------------------------
+no_cpuid:
+    push  ebx
+    popfd                          ; Restores EFLAGS to original content
+    stc                            ; Processor has not CPUID instruction (CY = 1)
+    ret
 
 
 ;------------------------------------------------------------------------------
@@ -514,6 +646,8 @@ trampoline_seg dw 0
 ;------------------------------------------------------------------------------
 ; Messages
 ;------------------------------------------------------------------------------
+title_msg      db 0Dh, 0Ah, "Unicore 1.0 [16jul2026] - Put to Sleep All Secundary Cores on DOS" 
+               db 0dh, 0Ah, "=================================================================", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_count db "00", " cores sleeping. TSR loaded.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "FAIL!: No cores response.", 0Dh, 0Ah, "$"
@@ -539,7 +673,7 @@ gdt_start:
     ; Se vocˆ tentar carregar 00h em um registrador de segmento, a CPU gera 
     ; um erro.
     dd 00000000h
-    dd 00000000; Aponta o ES para o trampolim roubado
+    dd 00000000h
 
     ; --- ENTRADA 1: O Descritor de Dados de 4GB (Offset 08h) ---
     ; Este ‚ o cara que vai carregar o "Shadow Register" do FS com 
@@ -582,15 +716,25 @@ trampoline_code_start:
     mov   al,5
     cpuid
 
-; Converts EDX to a Value 6-0 (C7-C1)
+
+;------------------------------------------------------------------------------
+; Gets Hint (C-state - 1) to MWAIT Instruction
+;; Converts EDX (Maximum C-state) to a Value 6:-1 (C7-C0) and store in BL
+; Converts EDX (Maximum C-state) to a Value 6-0 (C7-C1) and store in BL
+;------------------------------------------------------------------------------
+;    mov   cl,8
     mov   cl,7                     ; Only C7-C1 C-states will checked.
                                    ; (less significant nibble C0 is uselles)
 c_states_count_loop:
     rol   edx,4                    ; Moves the highest C-state to DL low nibble
     test  dl,0Fh                   ; C-state supported?
     loopz c_states_count_loop      ; No. Then checks next C-state
+;    dec   cl                       ; Turns CL on MWAIT hint (6 to -1)
     and   dl,0Fh                   ; Isolates the number of sub-states supported
-    dec   dl                       ; Gets highest supported sub-state
+    dec   dl                       ; Converts the sub-state count to the
+                                   ; highest MWAIT sub-state hint.
+                                   ; (Intel SDM does not explicitly define
+                                   ;  this mapping.)
     shl   cl,4                     ; Moves the highest C-state to CL high nibble
                                    ; Example: C5 = 40h
     mov   bl,cl                    ; Saves C-state hint in BL
