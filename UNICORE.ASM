@@ -3,7 +3,7 @@
 ; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Compile with: "nasm unicore.asm -o unicore.com -s"
 ; Released under MIT license.
-; 16/jul/2026
+; 19/jul/2026
 ;
 ; Error Codes Returned:
 ;     00 = Successfully and stayed resident
@@ -35,6 +35,8 @@
 ;     16jul2026
 ;         + Added processor checking for support of CPUID instruction
 ;           (returns bad_proc_msg)
+;     19jul2026
+;         * Changed title alignment.
 ;
 ;------------------------------------------------------------------------------
 
@@ -649,8 +651,11 @@ trampoline_seg dw 0
 ;------------------------------------------------------------------------------
 ; Messages
 ;------------------------------------------------------------------------------
-title_msg      db 0Dh, 0Ah, "Unicore 1.0 [16jul2026] - Put to Sleep All Secundary Cores on DOS" 
-               db 0dh, 0Ah, "=================================================================", 0Dh, 0Ah, "$"
+title_msg      db 0Dh, 0Ah, "==========================================="
+               db 0Dh, 0Ah, "= Unicore    -    Version 1.0 [19jul2026] =" 
+               db 0Dh, 0Ah, "= Put to Sleep All Secundary Cores on DOS =" 
+               db 0Dh, 0Ah, "==========================================="
+               db 0Dh, 0Ah, "(C)2026 - cleberjean@hotmail.com", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_count db "00", " cores sleeping. TSR loaded.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "FAIL!: No cores response.", 0Dh, 0Ah, "$"
@@ -679,8 +684,7 @@ gdt_start:
     dd 00000000h
 
     ; --- ENTRADA 1: O Descritor de Dados de 4GB (Offset 08h) ---
-    ; Este ‚ o cara que vai carregar o "Shadow Register" do FS com 
-    ; acesso total.
+    ; Isto carregar  o "Shadow Register" do FS com acesso total.
     dw 0FFFFh       ; Limite [15:0]  -> Todos os bits em 1
     dw 0000h        ; Base [15:0]    -> Come‡a no endere‡o f¡sico 0
     db 00h          ; Base [23:16]
