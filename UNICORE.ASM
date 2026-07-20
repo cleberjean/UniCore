@@ -1,21 +1,28 @@
 ;------------------------------------------------------------------------------
 ; UniCore - Put to Sleep All Extra (AP) Cores, Leaving Only the BSP Active
-; Author: Cleber Jean Barranco [cleberjean@hotmail.com]
-; Compile with: "nasm unicore.asm -o unicore.com -s"
+; ------------------------------------------------------------------------
+; Author      : Cleber Jean Barranco [cleberjean@hotmail.com]
+; Repository  : https://github.com/cleberjean/UniCore
+; Compile with: nasm -f bin unicore.asm -o unicore.com -s
+;
 ; Released under MIT license.
-; 19/jul/2026
+; Free to use, copy, modify or fork (only let me know).
+;
+; Last alteration on 20/jul/2026.
+;
 ;
 ; Error Codes Returned:
-;     00 = Successfully and stayed resident
+;     00 = Successfully finish and stayed resident
 ;     01 = TSR already loaded
 ;     02 = Cores didn't respond
-;     03 = DOS not is 2.0 or later
-;     04 = Bad processor
-;     05 = Processor does not support MONITOR/MWAIT instructions
-;     06 = Processor does not support C-states
-;     07 = A20 line is locked
-;     08 = Processor in Protected Mode
-;     09 = Windows loaded
+;     03 = Bad processor
+;     04 = Processor does not support MONITOR/MWAIT instructions
+;     05 = Processor does not support C-states
+;     06 = A20 line is locked
+;     07 = Processor in Protected Mode
+;     08 = Windows loaded
+;     09 = DOSBox(-X) environment
+;
 ;
 ; History:
 ;     12jul2026
@@ -37,36 +44,43 @@
 ;           (returns bad_proc_msg)
 ;     19jul2026
 ;         * Changed title alignment.
+;     20jul2026
+;         * Fixed interrupt for return to DOS on DOS Ver. < 2.x.
+;         - Removed error code for unsupported DOS version.
+;           DOS 1.x does not supports error codes (AX=4Ch, INT 21h).
+;         + Addded DOSBox(-X) checking.
 ;
 ;------------------------------------------------------------------------------
 
-    bits  16
-    org   100h
+    bits  16                       ; Use 66h prefix on 32-bit instructions
+    org   100h                     ; Program is a DOS .COM file
 
 
 ;------------------------------------------------------------------------------
-; Constants (EC = Error Code)   
+; Error Codes (EC)
 ;------------------------------------------------------------------------------
-
     EC_EXIT_SUCCESS   equ 0x00
     EC_ALREADY_LOADED equ 0x01
     EC_NO_RESPONSE    equ 0x02
-    EC_BAD_DOS        equ 0x03
-    EC_BAD_PROCESSOR  equ 0x04
-    EC_NO_MONIT_MWAIT equ 0x05
-    EC_NO_C_STATES    equ 0x06
-    EC_A20_DISABLED   equ 0x07
-    EC_PROTECTED_MODE equ 0x08
-    EC_WINDOWS_LOADED equ 0x09
+    EC_BAD_PROCESSOR  equ 0x03
+    EC_NO_MONIT_MWAIT equ 0x04
+    EC_NO_C_STATES    equ 0x05
+    EC_A20_DISABLED   equ 0x06
+    EC_PROTECTED_MODE equ 0x07
+    EC_WINDOWS_LOADED equ 0x08
+    EC_DOSBOX         equ 0x09
 
 
     section .text
 
-pgm_begin:
+
+pgm_begin:                         ; This label is used to calculate
+                                   ; the code size to stay resident
     push  cs
     pop   ax
     mov   ds,ax                    ; Ensures DS = CS
     mov   es,ax                    ; Ensures ES = CS
+
 
 ;------------------------------------------------------------------------------
 ; Show Program Title
@@ -85,12 +99,11 @@ check_dos:
     cmp    al,02h
     jae    check_loaded
 
-    ; DOS not is 2.0 or earlier
+    ; DOS not is 2.0 or is earlier
     mov   dx,bad_dos_msg
     mov   ah,09h
     int   21h
-    mov   ax,4C00h + EC_BAD_DOS
-    int   21h
+    int   20h                      ; Back to DOS (1.x)
 
 
 ;------------------------------------------------------------------------------
@@ -213,13 +226,34 @@ check_windows:
     mov   ax,160Ah
     int   2Fh
     test  ax,ax
-    jnz   calc_physical_address
+    jnz   check_dosbox
     
     ; Windows is running
     mov   dx,windows_msg
     mov   ah,09h
     int   21h
     mov   ax,4C00h + EC_WINDOWS_LOADED
+    int   21h                     
+
+
+;------------------------------------------------------------------------------
+; Checks if Is Running in DOSBox(-X)
+; Must be the last checking for debugging purposes.
+;------------------------------------------------------------------------------
+check_dosbox:
+    push  ds
+    mov   ax,0F000h
+    mov   ds,ax
+    mov   eax,[0F061h]             ; Address F000:E061 has DOSBox string
+    pop   ds
+    cmp   eax,'DOSB'
+    jne   calc_physical_address
+    
+    ; Program is running in DOSBox
+    mov   dx,dosbox_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C00h + EC_DOSBOX
     int   21h                     
 
 
@@ -324,9 +358,9 @@ wait_init:
     or    al,[sipi_vector]
     mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 1st SIPI)
 
-wait_sipi1:
+.wait_sipi1:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
-    jc    wait_sipi1               ; Waits SIPI to finish
+    jc    .wait_sipi1              ; Waits SIPI to finish
 
     ; Wait 200 microseconds (Intel recommendation)
     push  eax                      ; Preserves ICR_LOW
@@ -337,9 +371,9 @@ wait_sipi1:
     ; Sends SIPI by second time
     mov   fs:[edi + 300h],eax      ; ICR_LOW (Triggers the 2nd SIPI)
 
-wait_sipi2:
+.wait_sipi2:
     bt    dword fs:[edi + 300h],12 ; Checks Delivery Status bit (12)
-    jc    wait_sipi2               ; Waits SIPI to finish
+    jc    .wait_sipi2              ; Waits SIPI to finish
 
 
 ;-------------------------------------------------------------------------------
@@ -383,7 +417,6 @@ stay_resident:
     mov   es,[cs:002Ch]            ; CS = segment of block to free (environment vars)
     int   21h                      ; Free environment vars
     mov   ax,[trampoline_seg]      ; 
-;    add   ax,0100h                 ; Adds 256 segments of 16 bytes (4096 bytes)
     add   ax,0010h                 ; Adds 16 segments of 16 bytes (256 bytes) (trampoline code + vars has 75 bytes)
     mov   bx,cs                    ; Copies initial segment to BX
     sub   ax,bx                    ; AX = Paragrafos totais do nosso c¢digo + trampolim
@@ -424,12 +457,11 @@ check_cpuid_support:
 ; [MODIFIED] Test only bits 14 and 15, due detection fail when in Protected
 ;            Mode (bits 12 and 13 (IOPL) is always 11).
 ;-------------------------------------------------------------------------------
-check_8086:
     ; Checks SP (1st test)
     push  sp                       ; Push SP
     pop   ax                       ; And restore in AX
     sub   ax,sp                    ; Will clear AX if CPU is an 80286 or later
-    jnz   no_cpuid_near_jump       ; Processor is an 80186 or early
+    jnz   .no_cpuid_near_jump      ; Processor is an 80186 or early
 
     ; Checks FLAGS register (2nd test)
     pushf
@@ -442,7 +474,7 @@ check_8086:
     pop   ax                       ; Copy flags again to AX
     and   ax,0C000h                ; Check only if bits 15:14 still remains clean
                                    ; (Protected Mode locks bits 13:12 (IOPL) in 1)
-    jnz   no_cpuid_near_jump       ; Bits 14 and 15 from Flags Register remain set (processor is an 8086/80186)
+    jnz   .no_cpuid_near_jump      ; Bits 14 and 15 from Flags Register remain set (processor is an 8086/80186)
 
 
 ;-------------------------------------------------------------------------------
@@ -450,7 +482,7 @@ check_8086:
 ; ----------------------
 ; Bits 12-15 are always clear on the Intel 286 processor.
 ;-------------------------------------------------------------------------------
-test_286:
+.test_286:
     mov   ax,bx                    ; Copy flags to AX
     or    ax,0F000h                ; Set bits 12..15
     push  ax
@@ -458,15 +490,15 @@ test_286:
     pushf
     pop   ax
     and   ax,0F000h                ; If bits 12..15 are cleared, then CPU=80286
-    jnz   test_386                 ; Processor is an 80386
+    jnz   .test_386                ; Processor is an 80386
 
 
 ;-------------------------------------------------------------------------------
 ; Conditional Near Jump Fix for the 16 bits Processors
 ; Processors 8086/8088, 80186 and 80286 has Conditional Short Jumps Only.
 ;-------------------------------------------------------------------------------
-no_cpuid_near_jump:
-    jmp   no_cpuid
+.no_cpuid_near_jump:
+    jmp   .no_cpuid
 
 
             ;----------------------------------------------------;
@@ -480,7 +512,7 @@ no_cpuid_near_jump:
 ; register on the Intel486 DX CPU to generate alignment faults.
 ; This bit can not be set on the Intel386 CPU.
 ;-------------------------------------------------------------------------------
-test_386:
+.test_386:
     push   bx
     popf                           ; Restore original FLAGS
     pushfd
@@ -493,17 +525,20 @@ test_386:
     pop   eax                      ; Get new EFLAGS value
     xor   eax,ebx                  ; Compare original EFLAGS with new EFLAGS. Can't
                                    ; toggle AC bit, CPU=80386
-    jz    no_cpuid
+    jz    .no_cpuid
 
-test_486:
+
+;-------------------------------------------------------------------------------
+; Check 80486 with CPUID Instruction (bit 21 from EFLAGS)
+;-------------------------------------------------------------------------------
     mov   eax,ebx                  ; Copy original EFLAGS to EAX
     xor   eax,200000h              ; Flip ID bit in EFLAGS
     push  eax
     popfd
     pushfd
     pop   eax                      ; Get new EFLAGS value
-    xor   eax,ebx                  ; Compare original EFLAGS with new EFFAGS
-    jz    no_cpuid                 ; If ID bit cannot be changed, CPU=80486
+    xor   eax,ebx                  ; Compare original EFLAGS with new EFLAGS
+    jz    .no_cpuid                ; If ID bit cannot be changed, CPU=80486
                                    ; without CPUID instruction functionality
 
 ;-------------------------------------------------------------------------------
@@ -517,7 +552,7 @@ test_486:
 ;-------------------------------------------------------------------------------
 ; CPUID Instruction not is Supported (returns CY = 1)
 ;-------------------------------------------------------------------------------
-no_cpuid:
+.no_cpuid:
     push  ebx
     popfd                          ; Restores EFLAGS to original content
     stc                            ; Processor has not CPUID instruction (CY = 1)
@@ -541,7 +576,7 @@ check_A20:
     mov   al,[0500h]               ; Gets the contents of address 0000:0500h
     cmp   al,[es:0510h]            ; Compares it with the contents of address
                                    ; 100500h
-    jne   check_A20_return         ; Returns with Z flag = 0 if values are
+    jne   .check_A20_return        ; Returns with Z flag = 0 if values are
                                    ; different (A20 is enabled)
     cli                            ; Disable interrupts to prevent changes
                                    ; to 0000:0500h
@@ -553,7 +588,7 @@ check_A20:
     sti                            ; Re-enable interrupts
 
 ; Returns Z Flag = 0 = A20 Enabled, Z Flag = 1 = A20 Disabled
-check_A20_return:
+.check_A20_return:
     pop   es                       ; Restores ES
     pop   ds                       ; Restores DS
     ret                            ; Returns with ZF clear if A20 is enabled
@@ -577,21 +612,21 @@ delay_0838us:
     mov   al,bh
     out   42h,al
 
-    ; Activates GATE 2 (bit 0) without turn on the speaker (bit 1)
+    ; Activates GATE 2 (bit 0)
     in    al,61h                   ; Get port status
-    and   al,0FCh                  ; Mute speaker
+    and   al,0FCh                  ; Mute speaker (bit 1)
     or    al,01h                   ; Turn on timer
     out   61h,al                   ; Updates port status
 
     ; Listen Channel 2 (Bit 5)
-delay_wait_loop:
+.delay_wait_loop:
     in    al,61h
     test  al,20h
-    jnz   delay_wait_loop          ; While is 1, the time does not has ended
+    jnz   .delay_wait_loop         ; While is 1, the time does not has ended
 
     ; 5. Disable GATE 2
     in    al,61h
-    and   al,0FEh                  ; Turn off bit 0
+    and   al,0FEh                  ; Turn off bit 0 (disable Gate 2)
     out   61h,al
     ret
 
@@ -618,16 +653,16 @@ install_int2f_handler:
 int2f_handler:
     pushf                          ; Preserves flags register
     cmp   ax,0C400h                ; Checks if was function C400h that was called
-    jne   chain                    ; Wasn't function 4C00h called
+    jne   .chain                   ; Wasn't function 4C00h called
     cmp   bx,"UC"                  ; Confirms the caller program
-    jne   chain                    ; Wasn't UniCore program that called
+    jne   .chain                   ; Wasn't UniCore program that called
     
     popf                           ; Restores flags register
     mov   bx,"OK"                  ; Confirmation characters
     mov   al,0FFh                  ; Function supported flag (MANDATORY!)
     iret                           ; 
   
-chain:
+.chain:
     popf                           ; Restores original flags register content
                                    ; to the old interrupt 2Fh handler.
     jmp   far[cs:old_int2f]        ; Skips to the old handler
@@ -652,14 +687,15 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "= Unicore    -    Version 1.0 [19jul2026] =" 
-               db 0Dh, 0Ah, "= Put to Sleep All Secundary Cores on DOS =" 
+               db 0Dh, 0Ah, "= Unicore      Version 1.0      20jul2026 ="
+               db 0Dh, 0Ah, "= Put to Sleep All Secundary Cores on DOS ="
                db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "(C)2026 - cleberjean@hotmail.com", 0Dh, 0Ah, "$"
+               db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
-done_msg_count db "00", " cores sleeping. TSR loaded.", 0Dh, 0Ah, "$"
+done_msg_count db "00", " cores sleeping."
+               db 0Dh, 0Ah, "Unicore is resident.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "FAIL!: No cores response.", 0Dh, 0Ah, "$"
-loaded_msg     db 0Dh, 0Ah, "[C400] The code is already loaded.", 0Dh, 0Ah, "$"
+loaded_msg     db 0Dh, 0Ah, "[C400] Unicore is already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
 no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
@@ -667,6 +703,7 @@ no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh,
 a20_locked_msg db 0Dh, 0Ah, "FAIL!: The A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
 windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
+dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine (bare-metal) to work.", 0Dh, 0Ah, "$"
 
 
 ;---------------------------------------------------------
@@ -732,10 +769,10 @@ trampoline_code_start:
 ;    mov   cl,8
     mov   cl,7                     ; Only C7-C1 C-states will checked.
                                    ; (less significant nibble C0 is uselles)
-c_states_count_loop:
+.c_states_count_loop:
     rol   edx,4                    ; Moves the highest C-state to DL low nibble
     test  dl,0Fh                   ; C-state supported?
-    loopz c_states_count_loop      ; No. Then checks next C-state
+    loopz .c_states_count_loop     ; No. Then checks next C-state
 ;    dec   cl                       ; Turns CL on MWAIT hint (6 to -1)
     and   dl,0Fh                   ; Isolates the number of sub-states supported
     dec   dl                       ; Converts the sub-state count to the
