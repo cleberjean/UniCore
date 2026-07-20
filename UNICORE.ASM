@@ -91,6 +91,26 @@ pgm_begin:                         ; This label is used to calculate
 
 
 ;------------------------------------------------------------------------------
+; Checks if Is Running in DOSBox(-X)
+;------------------------------------------------------------------------------
+check_dosbox:
+    push  ds                       ; Preserves DS segment
+    mov   ax,0F000h                ; BIOS segment
+    mov   ds,ax                    ; DS = DOSBox BIOS segment
+    mov   eax,[0E061h]             ; Address F000:E061 has "DOSBox" string
+    pop   ds                       ; Restores original DS segment
+    cmp   eax,'DOSB'               ; 4 chars is enough
+    jne   check_dos
+
+    ; Program is running in DOSBox
+    mov   dx,dosbox_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C00h + EC_DOSBOX
+    int   21h                      ; Backs for DOSBox prompt with error code 9
+
+
+;------------------------------------------------------------------------------
 ; Checks DOS Version
 ;------------------------------------------------------------------------------
 check_dos:
@@ -226,34 +246,13 @@ check_windows:
     mov   ax,160Ah
     int   2Fh
     test  ax,ax
-    jnz   check_dosbox
+    jnz   calc_physical_address
     
     ; Windows is running
     mov   dx,windows_msg
     mov   ah,09h
     int   21h
     mov   ax,4C00h + EC_WINDOWS_LOADED
-    int   21h                     
-
-
-;------------------------------------------------------------------------------
-; Checks if Is Running in DOSBox(-X)
-; Must be the last checking for debugging purposes.
-;------------------------------------------------------------------------------
-check_dosbox:
-    push  ds
-    mov   ax,0F000h
-    mov   ds,ax
-    mov   eax,[0F061h]             ; Address F000:E061 has DOSBox string
-    pop   ds
-    cmp   eax,'DOSB'
-    jne   calc_physical_address
-    
-    ; Program is running in DOSBox
-    mov   dx,dosbox_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_DOSBOX
     int   21h                     
 
 
@@ -703,7 +702,7 @@ no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh,
 a20_locked_msg db 0Dh, 0Ah, "FAIL!: The A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
 windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
-dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine (bare-metal) to work.", 0Dh, 0Ah, "$"
+dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine to work.", 0Dh, 0Ah, "$"
 
 
 ;---------------------------------------------------------
