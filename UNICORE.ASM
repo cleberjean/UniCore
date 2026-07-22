@@ -10,6 +10,8 @@
 ;
 ; Last alteration on 20/jul/2026.
 ;
+; * DO NOT load with the LOADHIGH command!
+;
 ;
 ; Error Codes Returned:
 ;     00 = Successfully finish and stayed resident
@@ -20,8 +22,9 @@
 ;     05 = Processor does not support C-states
 ;     06 = A20 line is locked
 ;     07 = Processor in Protected Mode
-;     08 = Windows loaded
-;     09 = DOSBox(-X) environment
+;     08 = Program called with LOADHIGH/LH command
+;     09 = Windows loaded
+;     10 = DOSBox(-X) environment
 ;
 ;
 ; History:
@@ -49,6 +52,8 @@
 ;         - Removed error code for unsupported DOS version.
 ;           DOS 1.x does not supports error codes (AX=4Ch, INT 21h).
 ;         + Addded DOSBox(-X) checking.
+;         + Added checking for installation try in upper memory region (UMB)
+;           (LOADHIGH).
 ;
 ;------------------------------------------------------------------------------
 
@@ -67,8 +72,9 @@
     EC_NO_C_STATES    equ 0x05
     EC_A20_DISABLED   equ 0x06
     EC_PROTECTED_MODE equ 0x07
-    EC_WINDOWS_LOADED equ 0x08
-    EC_DOSBOX         equ 0x09
+    EC_UPPER_MEM_LOAD equ 0x08     ; Rare, but possible
+    EC_WINDOWS_LOADED equ 0x09
+    EC_DOSBOX         equ 0x0A
 
 
     section .text
@@ -107,7 +113,7 @@ check_dosbox:
     mov   ah,09h
     int   21h
     mov   ax,4C00h + EC_DOSBOX
-    int   21h                      ; Backs for DOSBox prompt with error code 9
+    int   21h                      ; Backs for DOSBox prompt with error code 10
 
 
 ;------------------------------------------------------------------------------
@@ -229,7 +235,7 @@ check_protected_mode:
     and   ah,30h                   ; Checks if bits 13:12 (IOPL) from Flags
                                    ; register are set. (bits 13:12 can not
                                    ; be cleaned in Protected Mode)
-    jz    check_windows            ; If 00, then system in Ring 0 (Real Mode)
+    jz    check_loadhigh           ; If 00, then system in Ring 0 (Real Mode)
 
     ; Processor is in Protected Mode
     mov   dx,pm_msg
@@ -237,6 +243,26 @@ check_protected_mode:
     int   21h
     mov   ax,4C00h + EC_PROTECTED_MODE
     int   21h                     
+
+
+;------------------------------------------------------------------------------
+;       * May Not Be Safe to Load UniCore in Upper Memory (UMB) Region *
+;
+; Checks if UniCore Was Called with LOADHIGH/LH or Equivalent Command (Rare)
+; Used to prevent possible error using with UMBPCI.SYS or others Real Mode
+; UMB's managers with not are detected by the Protected Mode checking routine.
+;------------------------------------------------------------------------------
+check_loadhigh:
+    mov   ax,cs
+    cmp   ax,0A000h                  ; UniCore is in Upper Memory?
+    jb    check_windows              ; No. Then let's check Windows presence
+
+    ; UniCore was loaded into Upper Memory (LOADHIGH/LH or equivalent)
+    mov   dx,loadhigh_msg
+    mov   ah,09h
+    int   21h
+    mov   ax,4C00h + EC_UPPER_MEM_LOAD
+    int   21h
 
 
 ;------------------------------------------------------------------------------
@@ -686,21 +712,22 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "= Unicore      Version 1.0      20jul2026 ="
+               db 0Dh, 0Ah, "= UniCore      Version 1.0      20jul2026 ="
                db 0Dh, 0Ah, "= Put to Sleep All Secundary Cores on DOS ="
                db 0Dh, 0Ah, "==========================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_count db "00", " cores sleeping."
-               db 0Dh, 0Ah, "Unicore is resident.", 0Dh, 0Ah, "$"
-sleep_fail_msg db 0Dh, 0Ah, "FAIL!: No cores response.", 0Dh, 0Ah, "$"
-loaded_msg     db 0Dh, 0Ah, "[C400] Unicore is already resident.", 0Dh, 0Ah, "$"
+               db 0Dh, 0Ah, "UniCore is resident.", 0Dh, 0Ah, "$"
+sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores response.", 0Dh, 0Ah, "$"
+loaded_msg     db 0Dh, 0Ah, "[C400] UniCore is already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
 no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
 no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh, 0Ah, "$"
-a20_locked_msg db 0Dh, 0Ah, "FAIL!: The A20 line is disabled.", 0Dh, 0Ah, "$"
+a20_locked_msg db 0Dh, 0Ah, "[FAIL!] The A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
+loadhigh_msg   db 0Dh, 0Ah, "[UMB] UniCore must not be loaded with LOADHIGH.", 0Dh, 0Ah, "$"
 windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
 dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine to work.", 0Dh, 0Ah, "$"
 
