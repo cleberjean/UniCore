@@ -1,10 +1,10 @@
 ;------------------------------------------------------------------------------
 ; UniCore - Put to Sleep All Extra (AP) Cores, Leaving Only the BSP Active
 ; ------------------------------------------------------------------------
-; Version     : 1.0
+; Version     : 1.1
 ; Author      : Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Repository  : https://github.com/cleberjean/UniCore
-; Compile with: nasm -f bin unicore.asm -o unicore.com -s
+; Compile with: nasm -f bin unicor11.asm -o unicore.com -s
 ;
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
@@ -55,9 +55,14 @@
 ;         + Addded DOSBox(-X) checking.
 ;         + Added checking for installation try in upper memory region (UMB)
 ;           (LOADHIGH).
-;     27jul2026
+;     27jul2026 (Version 1.1)
 ;         * Fixed position of DOS 1.x checking. Must be first checking to
 ;           allow the use of Int 21h, AH=4Ch by the following routines.
+;         + Added contact email on program title.
+;         * Removed [C400h] (Int 21h function number) from message "Unicore
+;           is already loaded.".
+;         * Translated some comments.
+;         + Created a generic exit routine for errors, saving 32 bytes.
 ;         * Changed directive "bits 16" for "use16" for more compatibility.
 ;
 ;------------------------------------------------------------------------------
@@ -103,7 +108,7 @@ pgm_begin:                         ; This label is used to calculate
 ;------------------------------------------------------------------------------
 ; Checks DOS Version
 ; ------------------
-; Must be always the FIRST CHECKING to allow use the Int 21, AH=4Ch to
+; Must be always the FIRST CHECKING to allow use the Int 21, AH=4Ch to 
 ; return error code for DOS.
 ;------------------------------------------------------------------------------
 check_dos:
@@ -132,11 +137,9 @@ check_dosbox:
     jne   check_loaded
 
     ; Program is running in DOSBox
-    mov   dx,dosbox_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_DOSBOX
-    int   21h                      ; Backs for DOSBox prompt with error code 10
+    mov   dx,dosbox_msg            ; Error message to show
+    mov   al,EC_DOSBOX             ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -151,14 +154,12 @@ check_loaded:
 
     ; Checks the handler confirmation
     cmp   bx,'OK'                  ; Confirms 
-    jne   check_processor          ; if different, code did not loaded yet
+    jne   check_processor          ; If different, code did not loaded yet
     
     ; Code already loaded
-    mov   dx,loaded_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_ALREADY_LOADED
-    int   21h
+    mov   dx,loaded_msg            ; Error message to show
+    mov   al,EC_ALREADY_LOADED     ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -169,11 +170,9 @@ check_processor:
     jnc   check_mwait              ; Processor supports CPUID instruction
 
     ; Processor not has CPUID instruction (then not is a Pentium 4)
-    mov   dx,bad_proc_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_BAD_PROCESSOR
-    int   21h
+    mov   dx,bad_proc_msg          ; Error message to show
+    mov   al,EC_BAD_PROCESSOR      ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -187,11 +186,9 @@ check_mwait:
     jc    check_c_states
 
     ; Processor does not supports MONITOR/MWAIT instructions
-    mov   dx,no_mwait_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_NO_MONIT_MWAIT
-    int   21h
+    mov   dx,no_mwait_msg          ; Error message to show
+    mov   al,EC_NO_MONIT_MWAIT     ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
     
 ;------------------------------------------------------------------------------
@@ -201,15 +198,13 @@ check_c_states:
     xor   eax,eax
     mov   al,5
     cpuid
-    test  edx,0xFFFFFFF0           ; Checks for C1-C7 C-states (ignoring C0)
+    test  edx,0xFFFFFFF0           ; Checks for C1-C7 C-states (Ignores C0!)
     jnz   check_A20_line
 
     ; Processor does not supports C-states
-    mov   dx,no_c_state_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_NO_C_STATES
-    int   21h
+    mov   dx,no_c_state_msg        ; Error message to show
+    mov   al,EC_NO_C_STATES        ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -220,11 +215,9 @@ check_A20_line:
     jnz   check_protected_mode
      
     ; A20 line is disabled
-    mov   dx,a20_locked_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_A20_DISABLED
-    int   21h
+    mov   dx,a20_locked_msg        ; Error message to show
+    mov   al,EC_A20_DISABLED       ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -245,15 +238,13 @@ check_protected_mode:
     jz    check_loadhigh           ; If 00, then system in Ring 0 (Real Mode)
 
     ; Processor is in Protected Mode
-    mov   dx,pm_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_PROTECTED_MODE
-    int   21h                     
+    mov   dx,pm_msg                ; Error message to show
+    mov   al,EC_PROTECTED_MODE     ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
-;       * May Not Be Safe to Load UniCore in Upper Memory (UMB) Region *
+;        * May Not Be Safe to Load UniCore in Upper Memory (UMB) Area *
 ;
 ; Checks if UniCore Was Called with LOADHIGH/LH or Equivalent Command (Rare)
 ; Used to prevent possible error using with UMBPCI.SYS or others Real Mode
@@ -261,15 +252,13 @@ check_protected_mode:
 ;------------------------------------------------------------------------------
 check_loadhigh:
     mov   ax,cs
-    cmp   ax,0A000h                  ; UniCore is in Upper Memory?
-    jb    check_windows              ; No. Then let's check Windows presence
+    cmp   ax,0A000h                ; UniCore is in Upper Memory?
+    jb    check_windows            ; No. Then let's check Windows presence
 
     ; UniCore was loaded into Upper Memory (LOADHIGH/LH or equivalent)
-    mov   dx,loadhigh_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_UPPER_MEM_LOAD
-    int   21h
+    mov   dx,loadhigh_msg          ; Error message to show
+    mov   al,EC_UPPER_MEM_LOAD     ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -282,11 +271,9 @@ check_windows:
     jnz   calc_physical_address
     
     ; Windows is running
-    mov   dx,windows_msg
-    mov   ah,09h
-    int   21h
-    mov   ax,4C00h + EC_WINDOWS_LOADED
-    int   21h                     
+    mov   dx,windows_msg           ; Error message to show
+    mov   al,EC_WINDOWS_LOADED     ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -300,7 +287,7 @@ calc_physical_address:
 
     ; Finds the Next 4KB Page Boundary
     add   eax,0FFFh
-    and   eax,0FFFFF000h           ; Alinha para uma p gina de 4KB
+    and   eax,0FFFFF000h           ; Aligns for a 4KB page
 
     ; Salves the Trampoline Code Segment (physical address / 16)
     shr   eax,4
@@ -316,12 +303,12 @@ calc_physical_address:
 ;------------------------------------------------------------------------------
     mov   si,trampoline_code_start
     push  es                       ; Preserves ES
-    mov   es,ax                    ; ES = Segmento Alinhado (trampoline_seg)
+    mov   es,ax                    ; ES = Aligned segment (trampoline_seg)
     xor   di,di                    ; Offset 0
     mov   cx,(trampoline_code_end - trampoline_code_start)
     cld
     rep   movsb
-    pop   es                       ; Restores original ES content
+    pop   es                       ; Restores the original ES value
 
 
     ;-----------------------------------------------------------
@@ -331,7 +318,7 @@ calc_physical_address:
     mov   ax,cs                    ; Copies GDT segment to AX
     shl   eax,4                    ; Multiplies DS by 16
     add   eax,gdt_start            ; Adds GDT offset
-    mov   [gdt_base_address],eax   ; Atualiza o ponteiro fisicamente na RAM
+    mov   [gdt_base_address],eax   ; Updates the pointer
 
 
     ;-----------------------------------------------------------
@@ -434,11 +421,11 @@ wait_init:
     mov   [done_msg_count],ax      ; Injects ASCII format value in the message
     mov   dx,done_msg              ; Success message
     mov   ah,09h
-    int   21h                      ; Imprime na tela
+    int   21h                      ; Show success message
 
 
 ;-------------------------------------------------------------------------------
-; Terminate and Stay Resident
+; Terminate and Stay Resident   
 ;-------------------------------------------------------------------------------
 stay_resident:
     ; Calculates the memory size that stay resident to be passed to DOS.
@@ -447,7 +434,7 @@ stay_resident:
     mov   ah,49h                   ; Free the Environment Vars memory allocation
     mov   es,[cs:002Ch]            ; CS = segment of block to free (Environment Vars)
     int   21h                      ; Frees Environment Variables
-    mov   ax,[trampoline_seg]      ; Gets the Trampoline Code segment on the
+    mov   ax,[trampoline_seg]      ; Gets the Trampoline Code segment on the 
                                    ; 4KB page alignment.
     add   ax,0010h                 ; Adds 256 bytes from the Trampoline size.
     mov   bx,cs                    ; Copies initial (PSP) segment to BX
@@ -458,20 +445,35 @@ stay_resident:
 
 
 ;------------------------------------------------------------------------------
-; No Core Responded (Exits without Stay Resident)
+; No Core Responded (Exits Without Stay Resident)
 ;------------------------------------------------------------------------------
 sleep_fail:
     mov   dx,sleep_fail_msg        ; Fail message
-    mov   ah,09h
-    int   21h                      ; Show message
-    mov   ax,4C00h + EC_NO_RESPONSE
+    mov   al,EC_NO_RESPONSE        ; Error code
+    
+
+;------------------------------------------------------------------------------
+; Exit for All Errors
+; -------------------
+; Input: DX = Message Offset
+;        AL = Error Code
+;------------------------------------------------------------------------------
+error_exit:    
+    push  cs
+    pop   ds                       ; Ensures DS = code segment
+    push  ax                       ; Saves error code
+    mov   ah,09h                   ; DOS print function
+    int   21h                      ; Show error message
+    pop   ax                       ; Restores the error code
+    mov   ah,4Ch                   ; DOS exit function (AL has the Error Code)
     int   21h                      ; Backs to DOS
 
 
 ;-------------------------------------------------------------------------------
 ; Checks for CPUID Instruction Support
+; ------------------------------------
 ; Returns CY = 0 if supported, otherwise CY= 1
-; --------------------------------------------
+;
 ; Code taken from Intel Pentium Processor User's Manual, Volume 3,
 ; Chapter 5.3 - SAMPLE CPUID IDENTIFICATION/FPU DETECTION CODE, pages 129 to
 ; 123, from 1993. Example 5-1. CPU Identification and FPU Detection.
@@ -602,7 +604,7 @@ check_cpuid_support:
 check_A20:
     push  ds                       ; Preserves DS
     push  es                       ; Preserves ES
-    xor   ax,ax                    ;
+    xor   ax,ax                    ; AX = 0
     mov   ds,ax                    ; DS = segment 0
     not   ax                       ; AX = 0FFFFh
     mov   es,ax                    ; ES = 0FFFFh (1MB boundary)
@@ -665,7 +667,7 @@ delay_0838us:
 
 
 ;------------------------------------------------------------------------------
-; Installs New INT 2Fh Handler
+; Installs a New Interrupt 2Fh Handler
 ;------------------------------------------------------------------------------
 install_int2f_handler:
     mov   ax,352Fh                 ; AL = interrupt to request vector (2Fh)
@@ -681,7 +683,7 @@ install_int2f_handler:
 
 
 ;------------------------------------------------------------------------------
-; New INT 2Fh Handler
+; New Interrupt 2Fh Handler
 ;------------------------------------------------------------------------------
 int2f_handler:
     pushf                          ; Preserves flags register
@@ -698,7 +700,7 @@ int2f_handler:
 .chain:
     popf                           ; Restores original flags register content
                                    ; to the old interrupt 2Fh handler.
-    jmp   far[cs:old_int2f]        ; Skips to the old handler
+    jmp   far [cs:old_int2f]       ; Skips to the old handler
 
 
 ; Old Interrupt 2Fh Handler Vector
@@ -719,14 +721,14 @@ trampoline_seg dw 0
 ;------------------------------------------------------------------------------
 ; Messages
 ;------------------------------------------------------------------------------
-title_msg      db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "= UniCore      Version 1.0      27jul2026 ="
-               db 0Dh, 0Ah, "= Put to Sleep All Secundary Cores on DOS ="
-               db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
+title_msg      db 0Dh, 0Ah, "====================================================="
+               db 0Dh, 0Ah, "= UniCore          Version 1.1          [27jul2026] ="
+               db 0Dh, 0Ah, "= Puts All Secundary (AP) Cores to Sleep, on DOS.   ="
+               db 0Dh, 0Ah, "====================================================="
+               db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco [cleberjean@hotmail.com]", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_count db "00", " cores sleeping."
-               db 0Dh, 0Ah, "UniCore is resident.", 0Dh, 0Ah, "$"
+               db 0Dh, 0Ah, "UniCore is now resident.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores response.", 0Dh, 0Ah, "$"
 loaded_msg     db 0Dh, 0Ah, "UniCore is already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
