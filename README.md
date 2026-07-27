@@ -25,7 +25,7 @@ Tested on:
 
 ✓ Core 2 Duo/Quad (hardware)
 
-✓ Xeon E3-1275 V2 (hardware)
+✓ Xeon E3-1275 V2 (hardware with UMBPCI.SYS)
 
 ✓ Core i7-8700 (hardware)
 
