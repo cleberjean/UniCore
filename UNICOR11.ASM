@@ -15,7 +15,7 @@
 ;
 ;
 ; Error Codes Returned:
-;     00 = Successfully finish and stayed resident
+;     00 = Successfully finished and stayed resident
 ;     01 = TSR already loaded
 ;     02 = Cores didn't respond
 ;     03 = Bad processor
@@ -723,17 +723,17 @@ trampoline_seg dw 0
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "====================================================="
                db 0Dh, 0Ah, "= UniCore          Version 1.1          [27jul2026] ="
-               db 0Dh, 0Ah, "= Puts All Secundary (AP) Cores to Sleep, on DOS.   ="
+               db 0Dh, 0Ah, "= Puts All Secondary (AP) Cores to Sleep, on DOS.   ="
                db 0Dh, 0Ah, "====================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco [cleberjean@hotmail.com]", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 done_msg_count db "00", " cores sleeping."
                db 0Dh, 0Ah, "UniCore is now resident.", 0Dh, 0Ah, "$"
-sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores response.", 0Dh, 0Ah, "$"
+sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores responded.", 0Dh, 0Ah, "$"
 loaded_msg     db 0Dh, 0Ah, "UniCore is already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
-no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not has monitor/mwait instructions.", 0Dh, 0Ah, "$"
+no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not support MONITOR/MWAIT instructions.", 0Dh, 0Ah, "$"
 no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh, 0Ah, "$"
 a20_locked_msg db 0Dh, 0Ah, "[FAIL!] The A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
