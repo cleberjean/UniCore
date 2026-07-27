@@ -64,7 +64,9 @@
 ;         * Translated some comments.
 ;         + Created a generic exit routine for errors, saving 32 bytes.
 ;         * Changed directive "bits 16" for "use16" for more compatibility.
-;
+;         * Changed the check_dosbox routine position, due the use of
+;           MOV EAX,'DOSB', to after CPUID checking routine.
+; 
 ;------------------------------------------------------------------------------
 
     use16                          ; Use 66h/67h prefixes on 32-bit instructions
@@ -115,31 +117,13 @@ check_dos:
     mov    ax,3000h
     int    21h                     ; Get DOS version
     cmp    al,02h                  ; Is DOS >= 2.x?
-    jae    check_dosbox            ; Yes.
+    jae    check_loaded            ; Yes.
 
     ; DOS not is 2.0 or is earlier
     mov   dx,bad_dos_msg           ; Error message to show
     mov   ah,09h
     int   21h                      ; Show error message
     int   20h                      ; Back to DOS (1.x)
-
-
-;------------------------------------------------------------------------------
-; Checks if Is Running in DOSBox(-X)
-;------------------------------------------------------------------------------
-check_dosbox:
-    push  ds                       ; Preserves DS segment
-    mov   ax,0F000h                ; BIOS segment
-    mov   ds,ax                    ; DS = DOSBox BIOS segment
-    mov   eax,[0E061h]             ; Address F000:E061 has "DOSBox" string
-    pop   ds                       ; Restores original DS segment
-    cmp   eax,'DOSB'               ; 4 chars is enough
-    jne   check_loaded
-
-    ; Program is running in DOSBox
-    mov   dx,dosbox_msg            ; Error message to show
-    mov   al,EC_DOSBOX             ; Error code
-    jmp   error_exit               ; Show message and return to DOS      
 
 
 ;------------------------------------------------------------------------------
@@ -167,7 +151,8 @@ check_loaded:
 ;------------------------------------------------------------------------------
 check_processor:
     call  check_cpuid_support      ; Returns CY = 0 if support
-    jnc   check_mwait              ; Processor supports CPUID instruction
+    jnc   check_dosbox             ; Processor supports CPUID and 32-bit
+                                   ; instructions
 
     ; Processor not has CPUID instruction (then not is a Pentium 4)
     mov   dx,bad_proc_msg          ; Error message to show
@@ -176,7 +161,25 @@ check_processor:
 
 
 ;------------------------------------------------------------------------------
-; Checks if Processor Supports MONITOR/MWAIT Instructions
+; Checks if Is Running in DOSBox(-X)
+;------------------------------------------------------------------------------
+check_dosbox:
+    push  ds                       ; Preserves DS segment
+    mov   ax,0F000h                ; BIOS segment
+    mov   ds,ax                    ; DS = DOSBox BIOS segment
+    mov   eax,[0E061h]             ; Address F000:E061 has "DOSBox" string
+    pop   ds                       ; Restores original DS segment
+    cmp   eax,'DOSB'               ; 4 chars is enough
+    jne   check_mwait              ; No DOSBox(-X)
+
+    ; Program is running in DOSBox
+    mov   dx,dosbox_msg            ; Error message to show
+    mov   al,EC_DOSBOX             ; Error code
+    jmp   error_exit               ; Show message and return to DOS      
+
+
+;------------------------------------------------------------------------------
+; Checks if Processor Supports the MONITOR/MWAIT Instructions
 ;------------------------------------------------------------------------------
 check_mwait:
     xor   eax,eax
@@ -185,7 +188,7 @@ check_mwait:
     bt    cx,3
     jc    check_c_states
 
-    ; Processor does not supports MONITOR/MWAIT instructions
+    ; Processor does not supports the MONITOR/MWAIT instructions
     mov   dx,no_mwait_msg          ; Error message to show
     mov   al,EC_NO_MONIT_MWAIT     ; Error code
     jmp   error_exit               ; Show message and return to DOS      
@@ -336,7 +339,7 @@ calc_physical_address:
     jmp   $+2                      ; Clears pipeline
 
     mov   ax,0008h
-    mov   fs,ax                    ; FS engole o limite de 4GB no Shadow Cache!
+    mov   fs,ax                    ; Loads FS with the Cache Descriptor Selector
 
 ;    mov   eax,cr0
 ;    and   al,0FEh
@@ -346,7 +349,7 @@ calc_physical_address:
 
     xor   ax,ax
     mov   fs,ax                    ; FS points to the base of 4GB address
-
+                                   ; Destroys Cache Descriptor? (TO REMOVE IF HAVE ISSUES)
 
 ;-------------------------------------------------------------------------------
 ; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
