@@ -32,7 +32,7 @@ Tested on:
 </br>
 * On DOSBox(-X) detects the emulation environment and aborts.
 
-</br>
+</br></br>
 
 Additional tests:
 ----------------
