@@ -66,7 +66,8 @@
 ;         * Changed directive "bits 16" for "use16" for more compatibility.
 ;         * Changed the check_dosbox routine position, due the use of
 ;           MOV EAX,'DOSB', to after CPUID checking routine.
-; 
+;         * Fixed bug (PUSH EBX at final) on 16-bit processors checking.
+;
 ;------------------------------------------------------------------------------
 
     use16                          ; Use 66h/67h prefixes on 32-bit instructions
@@ -498,11 +499,11 @@ check_cpuid_support:
     push  sp                       ; Push SP
     pop   ax                       ; And restore in AX
     sub   ax,sp                    ; Will clear AX if CPU is an 80286 or later
-    jnz   .no_cpuid_near_jump      ; Processor is an 80186 or early
+    jnz   .no_32bit_processor      ; Processor is an 80186 or early
 
     ; Checks FLAGS register (2nd test)
     pushf
-    pop   bx                       ; Preserves original FLAGS in BX
+    pop   bx                       ; Preserves original FLAGS content in BX
     mov   ax,bx                    ; Copy flags to AX
     and   ax,0FFFh                 ; Clear bits 12..15
     push  ax
@@ -511,7 +512,7 @@ check_cpuid_support:
     pop   ax                       ; Copy flags again to AX
     and   ax,0C000h                ; Check only if bits 15:14 still remains clean
                                    ; (Protected Mode locks bits 13:12 (IOPL) in 1)
-    jnz   .no_cpuid_near_jump      ; Bits 14 and 15 from Flags Register remain set (processor is an 8086/80186)
+    jnz   .no_32bit_processor      ; Bits 14 and 15 from Flags Register remain set (processor is an 8086/80186)
 
 
 ;-------------------------------------------------------------------------------
@@ -531,11 +532,13 @@ check_cpuid_support:
 
 
 ;-------------------------------------------------------------------------------
-; Conditional Near Jump Fix for the 16 bits Processors
-; Processors 8086/8088, 80186 and 80286 has Conditional Short Jumps Only.
+; Processor Not Supported
 ;-------------------------------------------------------------------------------
-.no_cpuid_near_jump:
-    jmp   .no_cpuid
+.no_32bit_processor:
+    push   bx
+    popf                           ; Restores FLAGS to the original content
+    stc                            ; Processor not supported
+    ret
 
 
             ;----------------------------------------------------;
