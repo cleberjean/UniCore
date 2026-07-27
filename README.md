@@ -30,8 +30,11 @@ Tested on:
 Additional tests:
 ----------------
 ✓ UMBPCI.SYS
+
 ✓ EMM386.EXE
+
 ✓ Windows 3.1 Standard/Enhanced Mode
+
 ✓ MS-DOS 6.22
 
 On DOSBox(-X) detects the emulation environment and aborts.
