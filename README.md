@@ -30,7 +30,7 @@ Tested on:
 ✓ Core i7-8700 (hardware)
 
 </br>
-* On DOSBox(-X) detects the emulation environment and aborts.
+* DOSBox(-X) detection disabled for processor detection tests. (The program's DOSBOx-(-X) Checking Routine detects the emulation environment and aborts)
 
 </br></br>
 
