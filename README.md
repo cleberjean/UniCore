@@ -3,6 +3,8 @@ Turn sleep all extra (AP) cores from processor, in Real Mode DOS, leaving only B
 
 Allow activate maximum turbo boost frequency/multiplier from Intel processors.
 
+</br>
+
 Tested on:
 ---------
 ✓ Intel 8088 (DOSBox-X)
