@@ -29,7 +29,7 @@ Tested on:
 
 ✓ Core i7-8700 (hardware)
 
-* On DOSBox(-X) detects the emulation environment and aborts.
+(*) On DOSBox(-X) detects the emulation environment and aborts.
 
 Additional tests:
 ----------------
