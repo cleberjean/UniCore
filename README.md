@@ -39,10 +39,13 @@ Additional tests:
 
 On DOSBox(-X) detects the emulation environment and aborts.
 
+</br>
+
 **DO NOT load with LOADHIGH command.**
 
-27/jul/2026 Version 1.1 is Released.
+27/jul/2026 **Version 1.1** is Released.
 
-</br></br>
+</br>
+
 **You are free to use this code under MIT license.**
 
