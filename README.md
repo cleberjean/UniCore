@@ -7,19 +7,19 @@ Allow activate maximum turbo boost frequency/multiplier from Intel processors.
 
 Tested on:
 ---------
-✓ Intel 8088 (DOSBox-X)
+✓ Intel 8088 (DOSBox-X)*
 
-✓ Intel 80286 (DOSBox-X)
+✓ Intel 80286 (DOSBox-X)*
 
-✓ Intel 80386 (DOSBox-X)
+✓ Intel 80386 (DOSBox-X)*
 
-✓ Intel 80486 (DOSBox-X)
+✓ Intel 80486 (DOSBox-X)*
 
-✓ Pentium (DOSBox-X)
+✓ Pentium (DOSBox-X)*
 
-✓ Pentium II (DOSBox-X)
+✓ Pentium II (DOSBox-X)*
 
-✓ Pentium III (DOSBox-X)
+✓ Pentium III (DOSBox-X)*
 
 ✓ Pentium 4 HT (hardware)
 
@@ -29,17 +29,17 @@ Tested on:
 
 ✓ Core i7-8700 (hardware)
 
+* On DOSBox(-X) detects the emulation environment and aborts.
+
 Additional tests:
 ----------------
-✓ UMBPCI.SYS
-
-✓ EMM386.EXE
-
-✓ Windows 3.1 Standard/Enhanced Mode
-
 ✓ MS-DOS 6.22
 
-On DOSBox(-X) detects the emulation environment and aborts.
+✓ EMM386.EXE (Protected Mode)
+
+✓ UMBPCI.SYS (LOADHIGH detection)
+
+✓ Windows 3.1 Standard/Enhanced Mode
 
 </br>
 
