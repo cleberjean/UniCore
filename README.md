@@ -7,9 +7,9 @@ Allow activate maximum turbo boost frequency/multiplier from Intel processors.
 
 Tested on:
 ---------
-✓ Intel 8088 (DOSBox-X)*
+✓ Intel 8088 (DOSBox-X)
 
-✓ Intel 80286 (DOSBox-X)*
+✓ Intel 80286 (DOSBox-X)
 
 ✓ Intel 80386 (DOSBox-X)*
 
