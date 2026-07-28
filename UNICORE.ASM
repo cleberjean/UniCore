@@ -360,9 +360,19 @@ calc_physical_address:
     mov   cr0,eax                  ; Restores original CR0 content
     jmp   $+2                      ; Clears pipeline
 
+    ;--------------------------------------------------------------------
+    ; Points FS to 0 
+    ; --------------
+    ; There is No Clear Information if This Action is Really Necessary.
+    ; On several real machines tested, the program behaved the same way,
+    ; with or without the execution of this action. 
+    ; However, it only destroyed the Unreal Mode when a non-zero value
+    ; was loaded into FS.
+    ;--------------------------------------------------------------------
     xor   ax,ax
     mov   fs,ax                    ; FS points to the base of 4GB address
-                                   ; Destroys Cache Descriptor? (TO REMOVE IF HAVE ISSUES)
+                                   ; (DESTROYS UNREAL MODE IF AX != 0)
+
 
 ;-------------------------------------------------------------------------------
 ; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
@@ -760,7 +770,7 @@ gdt_start:
     ; --- INPUT 1: The 4GB Data Descriptor (Offset 08h) ---
     ; This will load the "Shadow Register" from FS with total access.
     dw 0FFFFh       ; Range [15:0]   -> 65535
-    dw 0000h        ; Base [15:0]    -> Starts at phisical address 0
+    dw 0000h        ; Base [15:0]    -> Starts at physical address 0
     db 00h          ; Base [23:16]
     db 10010010b    ; Access Byte    -> Actual Segment, Ring 0, Data Type (Read/Write)
     db 11001111b    ; Flags & Limite -> Granularity 4KB (Bit 7), Size 32-bit (Bit 6) + Border [19:16] (0Fh)
