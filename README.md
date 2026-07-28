@@ -48,7 +48,7 @@ Additional tests:
 
 **DO NOT load with LOADHIGH command.**
 
-27/jul/2026 **Version 1.1** is Released.
+27/jul/2026 **Version 1.1** is released with changes on exit code from all checking routines.
 
 </br>
 
