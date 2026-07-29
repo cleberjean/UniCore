@@ -9,7 +9,7 @@
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 27/jul/2026.
+; Last alteration on 28/jul/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -62,6 +62,11 @@
 ;         * Changed the check_dosbox routine position, due the use of
 ;           MOV EAX,'DOSB', to after CPUID checking routine.
 ;         * Fixed bug (PUSH EBX at final) on 16-bit processors checking.
+;     28jul2026
+;         - Desatived the instructions XOR AX,AX/MOV FS,AX after activate the
+;           Unreal Mode in FS register. (It had shown unnecessary in real 
+;           machines tests).
+;           Reativate if have troubles.
 ;
 ;------------------------------------------------------------------------------
 
@@ -338,7 +343,7 @@ calc_physical_address:
 
 
     ;-----------------------------------------------------------
-    ; Enter in Unreal Mode
+    ; Sets Unreal Mode in FS Register
     ;-----------------------------------------------------------
     cli                            ; Clears interrupts (MANDATORY!)
     push  fs                       ; Saves FS even on Real Mode
@@ -347,31 +352,38 @@ calc_physical_address:
 
     mov   eax,cr0
     push  eax                      ; Saves CR0 content
-    or    al,1                     ; EAX Bit 0 = 1
+    or    al,1                     ; EAX Bit 0 (PE) = 1
     mov   cr0,eax                  ; Turn on Protected Mode
-    jmp   $+2                      ; Clears pipeline
+    jmp   $+2                      ; Flushes the instruction pipeline
 
     mov   ax,0008h
-    mov   fs,ax                    ; Loads FS with the Cache Descriptor Selector
-
+    mov   fs,ax                    ; Loads the FS Hidden Descriptor
+                                   ; Cache from the GDT.
 ;    mov   eax,cr0
 ;    and   al,0FEh
     pop   eax
-    mov   cr0,eax                  ; Restores original CR0 content
-    jmp   $+2                      ; Clears pipeline
+    mov   cr0,eax                  ; Restores original CR0 PE bit value
+    jmp   $+2                      ; Flushes the instruction pipeline
 
-    ;--------------------------------------------------------------------
-    ; Points FS to 0 
-    ; --------------
-    ; There is No Clear Information if This Action is Really Necessary.
-    ; On several real machines tested, the program behaved the same way,
-    ; with or without the execution of this action. 
-    ; However, it only destroyed the Unreal Mode when a non-zero value
-    ; was loaded into FS.
-    ;--------------------------------------------------------------------
-    xor   ax,ax
-    mov   fs,ax                    ; FS points to the base of 4GB address
-                                   ; (DESTROYS UNREAL MODE IF AX != 0)
+
+;    ;--------------------------------------------------------------------
+;    ; Points FS to 0   (DISABLED IN 28/Jul/2026 BY IT SHOWN UNNECESSARY)
+;    ; --------------
+;    ; It is Unclear Whether This Step is Actually Required!
+;    ;
+;    ; On several real machines tested, the program behaved the same way,
+;    ; with or without reloading FS with zero in Real Mode.
+;    ;
+;    ; Reloading FS in Real Mode does not destroy the Unreal Mode
+;    ; (based on tests performed on real hardware).
+;    ;
+;    ; However, once FS is reloaded with zero, it must remain zero
+;    ; afterwards in order to access the APIC correctly.
+;    ;--------------------------------------------------------------------
+;    xor   ax,ax
+;    mov   fs,ax                    ; FS points to the base of 4GB address
+;                                   ; (AFTER THIS FS MUST BE ALWAYS 0 IN ORDER
+;                                   ;  TO ACCESS THE APIC)
 
 
 ;-------------------------------------------------------------------------------
@@ -735,7 +747,7 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "= UniCore      Version 1.0      27jul2026 ="
+               db 0Dh, 0Ah, "= UniCore      Version 1.0      28jul2026 ="
                db 0Dh, 0Ah, "= Put to Sleep All Secondary Cores on DOS ="
                db 0Dh, 0Ah, "==========================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
