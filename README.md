@@ -52,6 +52,8 @@ Additional tests:
 
 ✓ Windows 3.1 Standard/Enhanced Mode
 
+✓ Windows 98 SE
+
 </br>
 
 **DO NOT load UniCore with LOADHIGH command.**
