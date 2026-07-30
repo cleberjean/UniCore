@@ -9,7 +9,7 @@
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 28/jul/2026.
+; Last alteration on 30/jul/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -72,11 +72,25 @@
 ;           Unreal Mode in FS register. (It had shown unnecessary in real 
 ;           machines tests).
 ;           Reativate if have troubles.
+;     30jul2026
+;         * Changed instruction MOV CL,7 into Trampoline routine to MOV CX,7.
+;         * Simplified some error messages to take less bytes on code.
+;         + Added AND EAX,UPPER_CASE_4CHAR instruction to capitalize the
+;           "DOSB" string, avoiding possible error in some DOSBox fork.
+;           (Maybe I remove it in future versions)
 ;
 ;------------------------------------------------------------------------------
 
     use16                          ; Use 66h/67h prefixes on 32-bit instructions
     org   100h                     ; Program is a DOS .COM file
+
+
+;------------------------------------------------------------------------------
+; Constants
+;------------------------------------------------------------------------------
+    UPPER_CASE_1CHAR   equ 0xDF        ; Not used
+    UPPER_CASE_2CHAR   equ 0xDFDF      ; Not used
+    UPPER_CASE_4CHAR   equ 0xDFDFDFDF  ; Used only in DOSBox checking routine
 
 
 ;------------------------------------------------------------------------------
@@ -123,7 +137,7 @@ check_dos:
     mov    ax,3000h
     int    21h                     ; Get DOS version
     cmp    al,02h                  ; Is DOS >= 2.x?
-    jae    check_loaded            ; Yes.
+    jae    check_resident          ; Yes.
 
     ; DOS not is 2.0 or is earlier
     mov   dx,bad_dos_msg           ; Error message to show
@@ -133,9 +147,9 @@ check_dos:
 
 
 ;------------------------------------------------------------------------------
-; Checks if the Code was Already Loaded
+; Checks if the TSR was Already Loaded
 ;------------------------------------------------------------------------------
-check_loaded:
+check_resident:
     mov   ax,0C400h
     mov   bx,'UC'                  ; BX = password for the handler
     int   2Fh
@@ -146,8 +160,8 @@ check_loaded:
     cmp   bx,'OK'                  ; Confirms 
     jne   check_processor          ; If different, code did not loaded yet
     
-    ; Code already loaded
-    mov   dx,loaded_msg            ; Error message to show
+    ; Code is already resident
+    mov   dx,resident_msg          ; Error message to show
     mov   al,EC_ALREADY_LOADED     ; Error code
     jmp   error_exit               ; Show message and return to DOS      
 
@@ -174,6 +188,7 @@ check_dosbox:
     mov   ax,0F000h                ; BIOS segment
     mov   ds,ax                    ; DS = DOSBox BIOS segment
     mov   eax,[0E061h]             ; Address F000:E061 has "DOSBox" string
+    and   eax,UPPER_CASE_4CHAR
     pop   ds                       ; Restores original DS segment
     cmp   eax,'DOSB'               ; 4 chars is enough
     jne   check_mwait              ; No DOSBox(-X)
@@ -750,24 +765,30 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "====================================================="
-               db 0Dh, 0Ah, "= UniCore          Version 1.1          [28jul2026] ="
+               db 0Dh, 0Ah, "= UniCore          Version 1.1          [30jul2026] ="
                db 0Dh, 0Ah, "= * Puts All Secondary (AP) Cores to Sleep on DOS * ="
                db 0Dh, 0Ah, "====================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco [cleberjean@hotmail.com]", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
-done_msg_count db "00", " cores sleeping."
-               db 0Dh, 0Ah, "UniCore is now resident.", 0Dh, 0Ah, "$"
+;done_msg_count db "00", " cores sleeping."
+;               db 0Dh, 0Ah, "UniCore is now resident.", 0Dh, 0Ah, "$"
+done_msg_count db "00", " cores sleeping. UniCore is resident.", 0Dh, 0Ah, "$"
 sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores responded.", 0Dh, 0Ah, "$"
-loaded_msg     db 0Dh, 0Ah, "UniCore is already resident.", 0Dh, 0Ah, "$"
+resident_msg   db 0Dh, 0Ah, "UniCore already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
-bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
-no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not support MONITOR/MWAIT instructions.", 0Dh, 0Ah, "$"
-no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh, 0Ah, "$"
-a20_locked_msg db 0Dh, 0Ah, "[FAIL!] The A20 line is disabled.", 0Dh, 0Ah, "$"
+;bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
+bad_proc_msg   db 0Dh, 0Ah, "Requires an Intel Core 2 or newer.", 0Dh, 0Ah, "$"
+;no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor does not support MONITOR/MWAIT instructions.", 0Dh, 0Ah, "$"
+;no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor does not support C-states.", 0Dh, 0Ah, "$"
+;a20_locked_msg db 0Dh, 0Ah, "[FAIL!] The A20 line is disabled.", 0Dh, 0Ah, "$"
+no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor without MONITOR/MWAIT instructions.", 0Dh, 0Ah, "$"
+no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor without C-states support.", 0Dh, 0Ah, "$"
+a20_locked_msg db 0Dh, 0Ah, "[FAIL!] A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
 loadhigh_msg   db 0Dh, 0Ah, "[UMB] UniCore must not be loaded with LOADHIGH.", 0Dh, 0Ah, "$"
 windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
-dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine to work.", 0Dh, 0Ah, "$"
+;dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine to work.", 0Dh, 0Ah, "$"
+dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine.", 0Dh, 0Ah, "$"
 
 
 ;------------------------------------------------------------------------------
@@ -802,7 +823,7 @@ gdt_base_address:
 ;------------------------------------------------------------------------------
 ; Trampoline Code for All Cores (Takes 256 bytes)
 ; -----------------------------------------------
-; The trampoline code size + ap_counter var fills 75 bytes of memory and the
+; The trampoline code size + ap_counter var fills 76 bytes of memory and the
 ; memory offset to the MONITOR instruction to listen is 128 bytes ahead from
 ; offset 0, taking 64 bytes (cache granularity) of memory and added a border
 ; of more other 64 bytes, totaling 256 bytes.
@@ -833,14 +854,13 @@ trampoline_code_start:
 ;; Converts EDX (Maximum C-state) to a Value 6:-1 (C7-C0) and store in BL
 ; Converts EDX (Maximum C-state) to a Value 6-0 (C7-C1) and store in BL
 ;------------------------------------------------------------------------------
-;    mov    cl,8
-    mov    cl,7                    ; Only C7-C1 C-states will checked.
+;    mov    cx,8
+    mov    cx,7                    ; Only C7-C1 C-states will checked.
                                    ; (less significant nibble C0 is uselles)
 .c_states_count_loop:
     rol    edx,4                   ; Moves the highest C-state to DL low nibble
     test   dl,0Fh                  ; C-state supported?
     loopz  .c_states_count_loop    ; No. Then checks next C-state
-;    dec    cl                      ; Turns CL on MWAIT hint (6 to -1)
     and    dl,0Fh                  ; Isolates the number of sub-states supported
     dec    dl                      ; Converts the sub-state count to the
                                    ; highest MWAIT sub-state hint.
