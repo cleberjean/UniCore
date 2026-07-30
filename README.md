@@ -29,6 +29,14 @@ Tested on:
 
 ✓ Core i7-8700 (hardware)
 
+✓ Celeron J1800 (hardware)
+
+✓ Celeron 1017U (hardware)
+
+✓ Core i5-2400 (hardware)
+
+✓ Core i5-5200U (hardware)
+
 </br>
 * DOSBox(-X) detection disabled for processor detection tests. (The program's DOSBOx-(-X) Checking Routine detects the emulation environment and aborts)
 
