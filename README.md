@@ -54,7 +54,7 @@ Additional tests:
 
 </br>
 
-**DO NOT load with LOADHIGH command.**
+**DO NOT load UniCore with LOADHIGH command.**
 
 27/jul/2026 **Version 1.1** is released with changes on exit code from all checking routines. UNICORE.COM is the version 1.1 now.
 
