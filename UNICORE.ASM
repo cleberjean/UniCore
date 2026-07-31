@@ -9,7 +9,7 @@
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 30/jul/2026.
+; Last alteration on 31/jul/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -73,6 +73,12 @@
 ;         + Added AND EAX,UPPER_CASE_4CHAR instruction to capitalize the
 ;           "DOSB" string, avoiding possible error in some DOSBox fork.
 ;           (Maybe I remove it in future versions)
+;     31jul2026
+;         * Shorted some messages to save bytes.
+;         * Increased the interval between INIT IPI and the first SIPI, from
+;           10 ms to 15 ms, to try to resolve the issue, on some system, on
+;           that UniCore fails to put the cores to sleep on the
+;           first execution.
 ;
 ;------------------------------------------------------------------------------
 
@@ -421,8 +427,12 @@ wait_init:
     bt    dword [fs:edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    wait_init                ; Waits INIT to finish
 
-    ; Intel recommends waiting 10 ms before sending a SIPI after the INIT
-    mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
+    ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI
+;    mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
+    mov   ax,17900                 ; But as some systems does not putting
+                                   ; the cores to sleep on first call, let's
+                                   ; try to increase for ~ 15 ms
+                                   ; (17900 x 0.838 us) to see. (31jul2026)
     call  delay_0838us
 
     ; Sends SIPI by first time
@@ -761,10 +771,10 @@ trampoline_seg dw 0
 ;------------------------------------------------------------------------------
 ; Messages
 ;------------------------------------------------------------------------------
-title_msg      db 0Dh, 0Ah, "==========================================="
-               db 0Dh, 0Ah, "= UniCore      Version 1.0      30jul2026 ="
-               db 0Dh, 0Ah, "= Put to Sleep All Secondary Cores on DOS ="
-               db 0Dh, 0Ah, "==========================================="
+title_msg      db 0Dh, 0Ah, "================================================="
+               db 0Dh, 0Ah, "= UniCore        Version 1.0        [31jul2026] ="
+               db 0Dh, 0Ah, "= Puts to Sleep All Secondary (AP) Cores on DOS ="
+               db 0Dh, 0Ah, "================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
 done_msg       db 0Dh, 0Ah, "[MWAIT] "
 ;done_msg_count db "00", " cores sleeping."
@@ -782,15 +792,15 @@ no_mwait_msg   db 0Dh, 0Ah, "[CPUID] Processor without MONITOR/MWAIT instruction
 no_c_state_msg db 0Dh, 0Ah, "[CPUID] Processor without C-states support.", 0Dh, 0Ah, "$"
 a20_locked_msg db 0Dh, 0Ah, "[FAIL!] A20 line is disabled.", 0Dh, 0Ah, "$"
 pm_msg         db 0Dh, 0Ah, "[IOPL] Processor in Protected Mode.", 0Dh, 0Ah, "$"
-loadhigh_msg   db 0Dh, 0Ah, "[UMB] UniCore must not be loaded with LOADHIGH.", 0Dh, 0Ah, "$"
-windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows and run me again.", 0Dh, 0Ah, "$"
+loadhigh_msg   db 0Dh, 0Ah, "[UMB] Cannot load UniCore with LOADHIGH.", 0Dh, 0Ah, "$"
+windows_msg    db 0Dh, 0Ah, "[160A] Quit Windows to run me.", 0Dh, 0Ah, "$"
 ;dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine to work.", 0Dh, 0Ah, "$"
 dosbox_msg     db 0Dh, 0Ah, "[DOSBox] Requires a real machine.", 0Dh, 0Ah, "$"
 
 
-;---------------------------------------------------------
+;------------------------------------------------------------------------------
 ; GDT Data
-;---------------------------------------------------------
+;------------------------------------------------------------------------------
     align 4                        ; Must be aligned in 4 bytes group
 
 gdt_start:
