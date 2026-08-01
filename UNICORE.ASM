@@ -9,7 +9,7 @@
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 31/jul/2026.
+; Last alteration on 01/aug/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -79,8 +79,17 @@
 ;           10 ms to 15 ms, to try to resolve the issue, on some system, on
 ;           that UniCore fails to put the cores to sleep on the
 ;           first execution.
+;     01aug2026
+;         * Based on testing on real hardware (HP i5-2400 and i5-5200U), the
+;           INIT-SIPI-SIPI timings recommended by the Intel SDM (10 ms and
+;           200 us) had to be increased to eliminate the intermittent
+;           "No core responded." error on these systems. For this the
+;           following timings were adopted: 15 ms before the first SIPI,
+;           300 us between the first and second SIPIs, and an additional
+;           500 us (0.5 ms) delay after the second SIPI.
 ;
 ;------------------------------------------------------------------------------
+
 
     use16                          ; Use 66h/67h prefixes on 32-bit instructions
     org   100h                     ; Program is a DOS .COM file
@@ -407,16 +416,37 @@ calc_physical_address:
 ;                                   ;  TO ACCESS THE APIC)
 
 
-;-------------------------------------------------------------------------------
+;------------------------------------------------------------------------------
 ; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
-;-------------------------------------------------------------------------------
+; -------------------------------------------------
+;
+; NOTE ON TIMINGS AND OEM HARDWARE COMPATIBILITY
+; ----------------------------------------------
+;
+; The Intel MultiProcessor Specification recommends a delay of 10 ms after
+; INIT and 200 us between the two SIPIs.
+;
+; However, testing on real hardware (including HP systems with 2nd- and
+; 5th-generation Intel Core processors such as the Core i5-2400 and
+; Core i5-5200U) revealed intermittent failures where the APs occasionally
+; failed to respond on the first run of UniCore.
+;
+; To improve reliability on these systems, the following timing adjustments
+; were adopted:
+;
+;   1. INIT delay before first SIPI increased from 10 ms to 15 ms.
+;   2. Delay between SIPIs increased from 200 us to 300 us.
+;   3. Added a 500 us settling delay after the second SIPI before checking
+;      ap_counter, avoiding a race where the BSP could read the counter
+;      before the APs executed the lock inc instruction in the trampoline.
+;------------------------------------------------------------------------------
     xor   ecx,ecx
     mov   cl,1Bh                   ; ECX = 0000001Bh
     rdmsr                          ; Gets APIC Base Pointer
     and   eax,0FFFFF000h           ; Mask
     mov   edi,eax                  ; Base Pointer to EDI
-    
-    
+
+
     ; INIT IPI (Prepares the cores to SIPI)
     xor   eax,eax
     mov   [fs:edi + 310h],eax      ; ICR_HIGH
@@ -428,11 +458,9 @@ wait_init:
     jc    wait_init                ; Waits INIT to finish
 
     ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI
-;    mov   ax,11932                 ; 11932 x 0.838 us = 10.001 ms
-    mov   ax,17900                 ; But as some systems does not putting
-                                   ; the cores to sleep on first call, let's
-                                   ; try to increase for ~ 15 ms
-                                   ; (17900 x 0.838 us) to see. (31jul2026)
+    ; However, testing on some systems showed that this delay was
+    ; not always sufficient, so it was increased to 15 ms.
+    mov   ax,17900                 ; Wait 17900 x 0.838 us = 15 ms
     call  delay_0838us
 
     ; Sends SIPI by first time
@@ -444,9 +472,10 @@ wait_init:
     bt    dword [fs:edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    .wait_sipi1              ; Waits SIPI to finish
 
-    ; Wait 200 microseconds (Intel recommendation)
+    ; Wait 300 microseconds (Intel recommends 200 us in your SDM, but
+    ; this value shown not enough in some tested hardware)
     push  eax                      ; Preserves ICR_LOW
-    mov   ax,239                   ; 239 x 0.838 us ~ 200.3 us
+    mov   ax,360                   ; Wait 360 x 0.838 us ~ 302 us
     call  delay_0838us
     pop   eax                      ; Restores ICR_LOW
 
@@ -456,6 +485,12 @@ wait_init:
 .wait_sipi2:
     bt    dword [fs:edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    .wait_sipi2              ; Waits SIPI to finish
+
+
+    ; Additional delay of 500 microseconds to fix the error "No core responded."
+    ; in some tested hardware (HP destop i5-2400 and i5-5200U notebook).
+    mov   ax,600                   ; Wait 600 x 0.838 us ~ 503 us
+    call  delay_0838us
 
 
 ;-------------------------------------------------------------------------------
@@ -772,7 +807,7 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "================================================="
-               db 0Dh, 0Ah, "= UniCore        Version 1.0        [31jul2026] ="
+               db 0Dh, 0Ah, "= UniCore        Version 1.0        [01aug2026] ="
                db 0Dh, 0Ah, "= Puts to Sleep All Secondary (AP) Cores on DOS ="
                db 0Dh, 0Ah, "================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
@@ -780,7 +815,7 @@ done_msg       db 0Dh, 0Ah, "[MWAIT] "
 ;done_msg_count db "00", " cores sleeping."
 ;               db 0Dh, 0Ah, "UniCore is now resident.", 0Dh, 0Ah, "$"
 done_msg_count db "00", " cores sleeping. UniCore is resident.", 0Dh, 0Ah, "$"
-sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No cores responded.", 0Dh, 0Ah, "$"
+sleep_fail_msg db 0Dh, 0Ah, "[FAIL!] No core responded.", 0Dh, 0Ah, "$"
 resident_msg   db 0Dh, 0Ah, "UniCore already resident.", 0Dh, 0Ah, "$"
 bad_dos_msg    db 0Dh, 0Ah, "Requires DOS 2.0 or later.", 0Dh, 0Ah, "$"
 ;bad_proc_msg   db 0Dh, 0Ah, "Requires a Core 2 or newer processor.", 0Dh, 0Ah, "$"
@@ -848,7 +883,7 @@ trampoline_code_start:
     mov    sp,0100h                ; Top of trampoline space memory (256)
 
     ; Counts the number of cores to put to sleep
-    lock   inc byte [(ap_counter - trampoline_code_start)]   ; Increments the core counter at each core initialized
+    lock   inc byte [(ap_counter - trampoline_code_start)]  ; Increments the core counter at each core initialized
 
     ; Gets Maximum C-States Supported by Processor
     xor    eax,eax
@@ -857,9 +892,10 @@ trampoline_code_start:
 
 
 ;------------------------------------------------------------------------------
-; Gets Hint (C-state - 1) to MWAIT Instruction
-;; Converts EDX (Maximum C-state) to a Value 6:-1 (C7-C0) and store in BL
-; Converts EDX (Maximum C-state) to a Value 6-0 (C7-C1) and store in BL
+; Gets Hint (C-state - 1) to the MWAIT Instruction
+; ------------------------------------------------
+;; Converts EDX (Maximum C-state) to a Value 6:-1 (C7-C0) and store in BL (CX =8)
+; Converts EDX (Maximum C-state) to a Value 6-0 (C7-C1) and store in BL (CX =7)
 ;------------------------------------------------------------------------------
 ;    mov    cx,8
     mov    cx,7                    ; Only C7-C1 C-states will checked.
