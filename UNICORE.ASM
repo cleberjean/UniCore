@@ -80,13 +80,15 @@
 ;           that UniCore fails to put the cores to sleep on the
 ;           first execution.
 ;     01aug2026
-;         * Based on testing on real hardware (HP i5-2400 and i5-5200U), the
-;           INIT-SIPI-SIPI timings recommended by the Intel SDM (10 ms and
-;           200 us) had to be increased to eliminate the intermittent
-;           "No core responded." error on these systems. For this the
-;           following timings were adopted: 15 ms before the first SIPI,
-;           300 us between the first and second SIPIs, and an additional
-;           500 us (0.5 ms) delay after the second SIPI.
+;         * Based on testing on real hardware (HP i5-2400 and i5-5200U,
+;           PCware IPX1800G2 - Celeron J1800), the INIT-SIPI-SIPI timings
+;           recommended by the Intel SDM (10 ms and 200 us) had to be
+;           increased to eliminate the intermittent "No core responded."
+;           error on these systems. For this, the following timings were
+;           adopted:
+;               1. 20 ms between the INIT and the first SIPI.
+;               2. 300 us between the first and second SIPIs.
+;               3. An additional 5 ms delay after the second SIPI.
 ;
 ;------------------------------------------------------------------------------
 
@@ -427,16 +429,17 @@ calc_physical_address:
 ; INIT and 200 us between the two SIPIs.
 ;
 ; However, testing on real hardware (including HP systems with 2nd- and
-; 5th-generation Intel Core processors such as the Core i5-2400 and
-; Core i5-5200U) revealed intermittent failures where the APs occasionally
-; failed to respond on the first run of UniCore.
+; 5th-generation Intel Core processors such as the Core i5-2400 /
+; Core i5-5200U and a PCWare IPX1800G2 motherboard with a Celeron J1800)
+; revealed intermittent failures where the APs occasionally failed to
+; respond on the first run of UniCore.
 ;
 ; To improve reliability on these systems, the following timing adjustments
 ; were adopted:
 ;
-;   1. INIT delay before first SIPI increased from 10 ms to 15 ms.
+;   1. Delay between INIT and the first SIPI increased from 10 ms to 20 ms.
 ;   2. Delay between SIPIs increased from 200 us to 300 us.
-;   3. Added a 500 us settling delay after the second SIPI before checking
+;   3. Added a 5 ms settling delay after the second SIPI before checking
 ;      ap_counter, avoiding a race where the BSP could read the counter
 ;      before the APs executed the lock inc instruction in the trampoline.
 ;------------------------------------------------------------------------------
@@ -445,8 +448,8 @@ calc_physical_address:
     rdmsr                          ; Gets APIC Base Pointer
     and   eax,0FFFFF000h           ; Mask
     mov   edi,eax                  ; Base Pointer to EDI
-
-
+    
+    
     ; INIT IPI (Prepares the cores to SIPI)
     xor   eax,eax
     mov   [fs:edi + 310h],eax      ; ICR_HIGH
@@ -459,8 +462,8 @@ wait_init:
 
     ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI
     ; However, testing on some systems showed that this delay was
-    ; not always sufficient, so it was increased to 15 ms.
-    mov   ax,17900                 ; Wait 17900 x 0.838 us = 15 ms
+    ; not always sufficient, so it was increased to 20 ms.
+    mov   ax,23867                 ; Wait 23867 x 0.838 us = 20 ms
     call  delay_0838us
 
     ; Sends SIPI by first time
@@ -487,14 +490,15 @@ wait_init:
     jc    .wait_sipi2              ; Waits SIPI to finish
 
 
-    ; Additional delay of 500 microseconds to fix the error "No core responded."
-    ; in some tested hardware (HP destop i5-2400 and i5-5200U notebook).
-    mov   ax,600                   ; Wait 600 x 0.838 us ~ 503 us
+    ; Additional delay of 5 ms to fix the error "No core responded." in
+    ; some tested hardware (HP desktop with an i5-2400 and a notebook with 
+    ; an i5-5200U, PCWare IPX1800G2 motherboard with a Celeron J1800).
+    mov   ax,5967                  ; Wait 5967 x 0.838 us = 5 ms
     call  delay_0838us
 
 
 ;-------------------------------------------------------------------------------
-; Restores Original FS Value and Re-Enable Interrupts
+; Restores the Original Real Mode FS Value and Re-Enable Interrupts
 ;-------------------------------------------------------------------------------
     pop   fs                       ; Restores the original FS value (Real Mode)
     sti                            ; Restores the interrupts
