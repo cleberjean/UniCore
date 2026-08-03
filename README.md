@@ -23,7 +23,7 @@ Tested on:
 
 ✓ Pentium 4 HT (hardware)
 
-✓ Core 2 Duo/Quad (hardware)
+✓ Core 2 Duo/Quad (hardware with UMBPCI.SYS - LOADHIGH detected)
 
 ✓ Xeon E3-1275 V2 (hardware with UMBPCI.SYS - LOADHIGH detected)
 
@@ -33,9 +33,9 @@ Tested on:
 
 ✓ Celeron 1017U (hardware)
 
-✓ Core i5-2400 (hardware)
+✓ Core i5-2400 (hardware with UMBPCI.SYS - LOADHIGH detected)
 
-✓ Core i5-5200U (hardware)
+✓ Core i5-5200U (hardware with UMBPCI.SYS - LOADHIGH detected)
 
 </br>
 * DOSBox(-X) detection disabled for processor detection tests. (The program's DOSBOx-(-X) Checking Routine detects the emulation environment and aborts)
