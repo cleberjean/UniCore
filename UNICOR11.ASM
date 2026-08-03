@@ -98,6 +98,17 @@
 ;------------------------------------------------------------------------------
 
 
+;------------------------------------------------------------------------------
+; IMPORTANT NOTE
+; --------------
+;
+; The INIT-SIPI-SIPI timings used by UniCore are intentionally conservative
+; to maximize reliability across a wide range of real hardware. They were
+; chosen based on extensive testing on real hardware and may exceed the
+; minimum delays recommended by the Intel MultiProcessor Specification.
+;------------------------------------------------------------------------------
+
+
     use16                          ; Use 66h/67h prefixes on 32-bit instructions
     org   100h                     ; Program is a DOS .COM file
 
@@ -448,7 +459,7 @@ wait_init:
     bt    dword [fs:edi + 300h],12 ; Checks Delivery Status bit (12)
     jc    wait_init                ; Waits INIT to finish
 
-    ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI
+    ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI.
     ; However, testing on some systems showed that this delay was
     ; not always sufficient, so it was increased to 20 ms.
     mov   ax,23867                 ; Wait 23867 x 0.838 us = 20 ms
@@ -478,9 +489,10 @@ wait_init:
     jc    .wait_sipi2              ; Waits SIPI to finish
 
 
-    ; Additional delay of 5 ms to fix the error "No core responded." in
-    ; some tested hardware (HP desktop with an i5-2400 and a notebook with 
-    ; an i5-5200U, PCWare IPX1800G2 motherboard with a Celeron J1800).
+    ; Additional 5 ms settling delay to eliminate an intermittent
+    ; "No core responded." error observed on some tested hardware
+    ; (HP Compaq 8200 Elite with Core i5-2400, HP ProBook with Core
+    ; i5-5200U and PCWare IPX1800G2 motherboard with Celeron J1800).
     mov   ax,5967                  ; Wait 5967 x 0.838 us = 5 ms
     call  delay_0838us
 
