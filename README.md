@@ -31,7 +31,7 @@ Tested on:
 
 ✓ Celeron J1800 (hardware)
 
-✓ Celeron 1017U (hardware)
+✓ Celeron 1017U (hardware with UMBPCI.SYS - LOADHIGH detected)
 
 ✓ Core i5-2400 (hardware with UMBPCI.SYS - LOADHIGH detected)
 
