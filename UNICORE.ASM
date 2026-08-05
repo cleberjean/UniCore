@@ -9,7 +9,7 @@
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 01/aug/2026.
+; Last alteration on 05/aug/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -89,6 +89,13 @@
 ;               1. 20 ms between the INIT and the first SIPI.
 ;               2. 300 us between the first and second SIPIs.
 ;               3. An additional 5 ms delay after the second SIPI.
+;     05aug2026
+;         * Changed method of waiting the aditional 5 ms delay after the
+;           second SIPI, making readings at intervals of 100 us and
+;           finishing the delay if any core responded, this way shorting
+;           the waiting time.
+;         + Added the constants ICR_LOW (300h) and ICR_HIGH (310h) for
+;           code's clarity.
 ;
 ;------------------------------------------------------------------------------
 
@@ -111,6 +118,8 @@
 ;------------------------------------------------------------------------------
 ; Constants
 ;------------------------------------------------------------------------------
+    ICR_LOW            equ 0x300       ; Interrupt Command Register low offset
+    ICR_HIGH           equ 0x310       ; Interrupt Command Register high offset
     UPPER_CASE_1CHAR   equ 0xDF        ; Not used
     UPPER_CASE_2CHAR   equ 0xDFDF      ; Not used
     UPPER_CASE_4CHAR   equ 0xDFDFDFDF  ; Used only in DOSBox checking routine
@@ -505,25 +514,35 @@ wait_init:
     ; "No core responded." error observed on some tested hardware
     ; (HP Compaq 8200 Elite with Core i5-2400, HP ProBook with Core
     ; i5-5200U and PCWare IPX1800G2 motherboard with Celeron J1800).
-    mov   ax,5967                  ; Wait 5967 x 0.838 us = 5 ms
-    call  delay_0838us
+    mov   ax,[trampoline_seg]
+    mov   es,ax
+    mov   cx,50                   ; Fifty interations of 100 us
 
+    ; Checks for an AP response every 100 us for up to 5 ms.
+wait_ap_response:
+    mov   ax,120                  ; Wait 120 x 0.838 us ~ 100 us
+    call  delay_0838us
+    mov   al,[es:(ap_counter - trampoline_code_start)]
+    or    al,al                   ; Any core responded?
+    loopz wait_ap_response        ; Continue waiting if no and while
+                                  ; timing is less than ~ 5 ms
 
 ;-------------------------------------------------------------------------------
 ; Restores the Original Real Mode FS Value and Re-Enable Interrupts
 ;-------------------------------------------------------------------------------
-    pop   fs                       ; Restores the original FS value (Real Mode)
+    pop   fs                       ; Restores the original Real Mode FS value
     sti                            ; Restores the interrupts
 
 
 ;-------------------------------------------------------------------------------
 ; Gets the Number of Sleeping Cores
 ;-------------------------------------------------------------------------------
-    mov   ax,[trampoline_seg]
-    mov   es,ax
-    mov   al,[es:(ap_counter - trampoline_code_start)]
-    cmp   al,0                     ; Checks how much cores responded
-    je    sleep_fail               ; No cores responded (exits without stay resident)
+;    mov   ax,[trampoline_seg]
+;    mov   es,ax
+;    mov   al,[es:(ap_counter - trampoline_code_start)]
+;    cmp   al,0                     ; Checks how much cores responded
+;    je    sleep_fail               ; No cores responded (exits without stay resident)
+    jz    sleep_fail               ; No cores responded (exits without stay resident)
 
 
 ;-------------------------------------------------------------------------------
@@ -823,7 +842,7 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "================================================="
-               db 0Dh, 0Ah, "= UniCore        Version 1.0        [01aug2026] ="
+               db 0Dh, 0Ah, "= UniCore        Version 1.0        [05aug2026] ="
                db 0Dh, 0Ah, "= Puts to Sleep All Secondary (AP) Cores on DOS ="
                db 0Dh, 0Ah, "================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco.", 0Dh, 0Ah, "$"
