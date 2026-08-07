@@ -60,6 +60,8 @@ Additional tests:
 
 27/jul/2026 **Version 1.1** is released with changes on exit code from all checking routines. UNICORE.COM is the version 1.1 now.
 
+07/aug/2026 UniCore 1.0 is no longer updated.
+
 </br>
 
 **You are free to use this code under MIT license.**
