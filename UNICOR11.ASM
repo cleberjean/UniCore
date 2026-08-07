@@ -1,15 +1,16 @@
 ;------------------------------------------------------------------------------
 ; UniCore - Put to Sleep All Extra (AP) Cores, Leaving Only the BSP Active
 ; ------------------------------------------------------------------------
-; Version     : 1.1
-; Author      : Cleber Jean Barranco [cleberjean@hotmail.com]
-; Repository  : https://github.com/cleberjean/UniCore
-; Compile with: nasm -f bin unicor11.asm -o unicore.com -s
+; Version.............: 1.1
+; Author..............: Cleber Jean Barranco [cleberjean@hotmail.com]
+; Repository..........: https://github.com/cleberjean/UniCore
+; Compile with........: nasm -f bin unicor11.asm -o unicore.com -s
+; Syntax for Debbugung: nasm -f bin unicor11.asm -o unicore.com -d debug -s
 ;
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
 ;
-; Last alteration on 05/aug/2026.
+; Last alteration on 07/aug/2026.
 ;
 ; * DO NOT load with the LOADHIGH command!
 ;
@@ -38,7 +39,7 @@
 ;         * Changed label check_A20_sub to check_A20.
 ;         + Added TSR loaded checking routine.
 ;     14jul2026
-;         + Made changes on memory allocated for trampoline code. 
+;         + Made changes on memory allocated for trampoline code.
 ;         + Created Error Codes Contants.
 ;     15jul2026
 ;         * Changed done_msg_num label to done_msg_count.
@@ -69,7 +70,7 @@
 ;         * Fixed bug (PUSH EBX at final) on 16-bit processors checking.
 ;     28jul2026
 ;         - Desatived the instructions XOR AX,AX/MOV FS,AX after activate the
-;           Unreal Mode in FS register. (It had shown unnecessary in real 
+;           Unreal Mode in FS register. (It had shown unnecessary in real
 ;           machines tests).
 ;           Reativate if have troubles.
 ;     30jul2026
@@ -101,18 +102,10 @@
 ;           the waiting time.
 ;         + Added the constants ICR_LOW (300h) and ICR_HIGH (310h) for
 ;           code's clarity.
+;     07aug2026
+;         * Restored values 10 ms and 200 us for INIT-SIPI-SIPI sequence.
+;           (5 ms with an 100 us polling after the second SIPI remainded)
 ;
-;------------------------------------------------------------------------------
-
-
-;------------------------------------------------------------------------------
-; IMPORTANT NOTE
-; --------------
-;
-; The INIT-SIPI-SIPI timings used by UniCore are intentionally conservative
-; to maximize reliability across a wide range of real hardware. They were
-; chosen based on extensive testing on real hardware and may exceed the
-; minimum delays recommended by the Intel MultiProcessor Specification.
 ;------------------------------------------------------------------------------
 
 
@@ -123,27 +116,28 @@
 ;------------------------------------------------------------------------------
 ; Constants
 ;------------------------------------------------------------------------------
-    ICR_LOW            equ 0x300       ; Interrupt Command Register low offset
-    ICR_HIGH           equ 0x310       ; Interrupt Command Register high offset
-    UPPER_CASE_1CHAR   equ 0xDF        ; Not used
-    UPPER_CASE_2CHAR   equ 0xDFDF      ; Not used
-    UPPER_CASE_4CHAR   equ 0xDFDFDFDF  ; Used only in DOSBox checking routine
+    IA32_APIC_BASE_MSR  equ 0x1B
+    ICR_LOW             equ 0x300       ; Interrupt Command Register low offset
+    ICR_HIGH            equ 0x310       ; Interrupt Command Register high offset
+    UPPER_CASE_1CHAR    equ 0xDF        ; Not used
+    UPPER_CASE_2CHAR    equ 0xDFDF      ; Not used
+    UPPER_CASE_4CHAR    equ 0xDFDFDFDF  ; Used only in DOSBox checking routine
 
 
 ;------------------------------------------------------------------------------
 ; Error Codes (EC)
 ;------------------------------------------------------------------------------
-    EC_EXIT_SUCCESS    equ 0x00
-    EC_ALREADY_LOADED  equ 0x01
-    EC_NO_RESPONSE     equ 0x02
-    EC_BAD_PROCESSOR   equ 0x03
-    EC_NO_MONIT_MWAIT  equ 0x04
-    EC_NO_C_STATES     equ 0x05
-    EC_A20_DISABLED    equ 0x06
-    EC_PROTECTED_MODE  equ 0x07
-    EC_UPPER_MEM_LOAD  equ 0x08    ; Rare, but possible
-    EC_WINDOWS_LOADED  equ 0x09
-    EC_DOSBOX          equ 0x0A
+    EC_EXIT_SUCCESS     equ 0x00
+    EC_ALREADY_LOADED   equ 0x01
+    EC_NO_RESPONSE      equ 0x02
+    EC_BAD_PROCESSOR    equ 0x03
+    EC_NO_MONIT_MWAIT   equ 0x04
+    EC_NO_C_STATES      equ 0x05
+    EC_A20_DISABLED     equ 0x06
+    EC_PROTECTED_MODE   equ 0x07
+    EC_UPPER_MEM_LOAD   equ 0x08   ; If used with UMBPCI and LOADHIGH
+    EC_WINDOWS_LOADED   equ 0x09
+    EC_DOSBOX           equ 0x0A
 
 
     section .text                  ; Nasm directive (code area)
@@ -430,8 +424,8 @@ calc_physical_address:
 ; Puts the Cores to Sleep (INIT-SIPI-SIPI Sequence)
 ; -------------------------------------------------
 ;
-; NOTE ON TIMINGS AND OEM HARDWARE COMPATIBILITY
-; ----------------------------------------------
+; NOTE ON TIMINGS AND HARDWARE COMPATIBILITY
+; ------------------------------------------
 ;
 ; The Intel MultiProcessor Specification recommends a delay of 10 ms after
 ; INIT and 200 us between the two SIPIs.
@@ -442,17 +436,16 @@ calc_physical_address:
 ; revealed intermittent failures where the APs occasionally failed to
 ; respond on the first run of UniCore.
 ;
-; To improve reliability on these systems, the following timing adjustments
-; were adopted:
+; To improve reliability on these and others possible systems, the following
+; fixing was adopted:
 ;
-;   1. Delay between INIT and the first SIPI increased from 10 ms to 20 ms.
-;   2. Delay between SIPIs increased from 200 us to 300 us.
-;   3. Added a 5 ms settling delay after the second SIPI before checking
-;      ap_counter, avoiding a race where the BSP could read the counter
-;      before the APs executed the lock inc instruction in the trampoline.
+;     Added a 5 ms settling delay with an 100 us pooling after the second
+;     SIPI before of checking ap_counter variable, avoiding a possible race
+;     condition where the BSP could read the counter before the APs executed
+;     the lock inc instruction in the trampoline.
 ;------------------------------------------------------------------------------
     xor   ecx,ecx
-    mov   cl,1Bh                   ; ECX = 0000001Bh
+    mov   cl,IA32_APIC_BASE_MSR    ; ECX = 0000001Bh
     rdmsr                          ; Gets APIC Base Pointer
     and   eax,0FFFFF000h           ; Mask
     mov   edi,eax                  ; Base Pointer to EDI
@@ -469,9 +462,9 @@ wait_init:
     jc    wait_init                    ; Waits INIT to finish
 
     ; Intel recommends waiting 10 ms before sending a SIPI after the INIT IPI.
-    ; However, testing on some systems showed that this delay was
-    ; not always sufficient, so it was increased to 20 ms.
-    mov   ax,23867                 ; Wait 23867 x 0.838 us = 20 ms
+    mov   ax,11934                 ; Wait 11934 x 0.838 us = 10 ms
+;    mov   ax,17900                 ; Wait 17900 x 0.838 us = 15 ms
+;    mov   ax,23867                 ; Wait 23867 x 0.838 us = 20 ms
     call  delay_0838us
 
     ; Sends SIPI by first time
@@ -483,10 +476,10 @@ wait_init:
     bt    dword [fs:edi + ICR_LOW],12  ; Checks Delivery Status (bit 12)
     jc    .wait_sipi1                  ; Waits SIPI to finish
 
-    ; Wait 300 microseconds (Intel recommends 200 us in your SDM, but
-    ; this value shown not enough in some tested hardware)
+    ; Intel recommends a 200 us delay between the two SIPIs in your SDM
     push  eax                      ; Preserves ICR_LOW
-    mov   ax,360                   ; Wait 360 x 0.838 us ~ 302 us
+    mov   ax,240                   ; Wait 240 x 0.838 us ~ 201 us
+;    mov   ax,360                   ; Wait 360 x 0.838 us ~ 302 us
     call  delay_0838us
     pop   eax                      ; Restores ICR_LOW
 
@@ -523,13 +516,8 @@ wait_ap_response:
 
 
 ;-------------------------------------------------------------------------------
-; Gets the Number of Sleeping Cores
+; Checks if Any AP Responded
 ;-------------------------------------------------------------------------------
-;    mov   ax,[trampoline_seg]
-;    mov   es,ax
-;    mov   al,[es:(ap_counter - trampoline_code_start)]
-;    cmp   al,0                     ; Checks how much cores responded
-;    je    sleep_fail               ; No cores responded (exits without stay resident)
     jz    sleep_fail               ; No cores responded (exits without stay resident)
 
 
@@ -544,6 +532,9 @@ wait_ap_response:
     mov   ah,09h
     int   21h                      ; Show success message
 
+%ifdef DEBUG debug
+    call  show_tries               ; - FOR DEBBUGING -
+%endif
 
 ;-------------------------------------------------------------------------------
 ; Terminate and Stay Resident   
@@ -588,6 +579,26 @@ error_exit:
     pop   ax                       ; Restores the error code
     mov   ah,4Ch                   ; DOS exit function (AL has the Error Code)
     int   21h                      ; Backs to DOS
+
+
+;------------------------------[ DEBUGGING CODE ]------------------------------
+%ifdef DEBUG debug
+  show_tries:
+      mov   al,50                  ; Total number of tries
+      sub   al,cl                  ; Subtracts the rest
+      aam   0Ah                    ; Converts to BCD
+      or    ax,3030h               ; Converts to ASCII
+      xchg  ah,al
+      mov   [tries_count],ax       ; Inserts the tries number in the message
+      mov   dx,tries_info          ; Show number of ap_counter reading tries
+      mov   ah,09h
+      int   21h
+      ret
+
+  tries_info  db "[ap_count reading tries: "
+  tries_count db 0, 0, "]", 0Dh, 0Ah, "$"
+%endif
+;----------------------------[ DEBBUGING CODE END ]----------------------------
 
 
 ;-------------------------------------------------------------------------------
@@ -845,7 +856,7 @@ trampoline_seg dw 0
 ; Messages
 ;------------------------------------------------------------------------------
 title_msg      db 0Dh, 0Ah, "====================================================="
-               db 0Dh, 0Ah, "= UniCore          Version 1.1          [05aug2026] ="
+               db 0Dh, 0Ah, "= UniCore          Version 1.1          [07aug2026] ="
                db 0Dh, 0Ah, "= * Puts All Secondary (AP) Cores to Sleep on DOS * ="
                db 0Dh, 0Ah, "====================================================="
                db 0Dh, 0Ah, "(C)2026 Cleber Jean Barranco [cleberjean@hotmail.com]", 0Dh, 0Ah, "$"
