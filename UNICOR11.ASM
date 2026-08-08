@@ -5,7 +5,7 @@
 ; Author..............: Cleber Jean Barranco [cleberjean@hotmail.com]
 ; Repository..........: https://github.com/cleberjean/UniCore
 ; Compile with........: nasm -f bin unicor11.asm -o unicore.com -s
-; Syntax for Debbugung: nasm -f bin unicor11.asm -o unicore.com -d debug -s
+; Syntax for Debbuging: nasm -f bin unicor11.asm -o unicore.com -d debug -s
 ;
 ; Released under MIT license.
 ; Free to use, copy, modify or fork (only let me know).
@@ -104,7 +104,7 @@
 ;           code's clarity.
 ;     07aug2026
 ;         * Restored values 10 ms and 200 us for INIT-SIPI-SIPI sequence.
-;           (5 ms with an 100 us polling after the second SIPI remainded)
+;           (5 ms with 100 us polling after the second SIPI remained)
 ;
 ;------------------------------------------------------------------------------
 
@@ -497,7 +497,7 @@ wait_init:
     ; i5-5200U and PCWare IPX1800G2 motherboard with Celeron J1800).
     mov   ax,[trampoline_seg]
     mov   es,ax
-    mov   cx,50                   ; Fifty interations of 100 us
+    mov   cx,50                   ; Fifty iterations of 100 us
     
     ; Checks for an AP response every 100 us for up to 5 ms.
 wait_ap_response:
@@ -505,8 +505,8 @@ wait_ap_response:
     call  delay_0838us
     mov   al,[es:(ap_counter - trampoline_code_start)]
     or    al,al                   ; Any core responded?
-    loopz wait_ap_response        ; Continue waiting if no and while
-                                  ; timing is less than ~ 5 ms
+    loopz wait_ap_response        ; Continue waiting if no or while the
+                                  ; timing is less than 5 ms
 
 ;-------------------------------------------------------------------------------
 ; Restores the Original Real Mode FS Value and Re-Enable Interrupts
@@ -533,7 +533,7 @@ wait_ap_response:
     int   21h                      ; Show success message
 
 %ifdef DEBUG debug
-    call  show_tries               ; - FOR DEBBUGING -
+    call  show_read_attempts       ; - FOR DEBBUGING -
 %endif
 
 ;-------------------------------------------------------------------------------
@@ -583,20 +583,20 @@ error_exit:
 
 ;------------------------------[ DEBUGGING CODE ]------------------------------
 %ifdef DEBUG debug
-  show_tries:
+  show_read_attempts:
       mov   al,50                  ; Total number of tries
       sub   al,cl                  ; Subtracts the rest
       aam   0Ah                    ; Converts to BCD
       or    ax,3030h               ; Converts to ASCII
       xchg  ah,al
-      mov   [tries_count],ax       ; Inserts the tries number in the message
-      mov   dx,tries_info          ; Show number of ap_counter reading tries
+      mov   [attempts_count],ax    ; Inserts the attempts number in the message
+      mov   dx,attempts_info       ; Show number of ap_counter read attempts
       mov   ah,09h
       int   21h
       ret
 
-  tries_info  db "[ap_count reading tries: "
-  tries_count db 0, 0, "]", 0Dh, 0Ah, "$"
+  attempts_info  db "[ap_count read attempts: "
+  attempts_count db 0, 0, "]", 0Dh, 0Ah, "$"
 %endif
 ;----------------------------[ DEBBUGING CODE END ]----------------------------
 
